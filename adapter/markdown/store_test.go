@@ -85,3 +85,28 @@ func TestSaveLeavesNoTempFile(t *testing.T) {
 		}
 	}
 }
+
+// Save が既存ファイルのパーミッションを 0600 に落としてしまわないこと。
+func TestSavePreservesFileMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.md")
+	if err := os.WriteFile(path, []byte(sample), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewStore(path)
+	list, err := s.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(list); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Errorf("Save() 後のパーミッション = %v, want 0644", info.Mode().Perm())
+	}
+}

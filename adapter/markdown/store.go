@@ -43,5 +43,12 @@ func (s *Store) Save(t domain.TaskList) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
+	// 既存ファイルのパーミッションを引き継ぐ。CreateTemp は 0600 で作るため、
+	// 何もしないと初回 Save 後にユーザーの tasks.md が 0600 に化けてしまう。
+	if info, err := os.Stat(s.path); err == nil {
+		if err := os.Chmod(tmp, info.Mode()); err != nil {
+			return err
+		}
+	}
 	return os.Rename(tmp, s.path)
 }

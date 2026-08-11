@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"strings"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/k-narusawa/tk/domain"
@@ -30,7 +32,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) updateAdding(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
-		title := m.input.Value()
+		title := strings.TrimSpace(m.input.Value())
 		m.adding = false
 		m.input.Reset()
 		m.input.Blur()

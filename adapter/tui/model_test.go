@@ -115,6 +115,57 @@ func TestNAddsTaskViaTextinput(t *testing.T) {
 	}
 }
 
+// 空白だけのタイトルは、余計な "- [ ] " 行を作るので保存しない。
+func TestNRejectsWhitespaceOnlyTitle(t *testing.T) {
+	store := &fakeStore{list: taskList("")}
+	m := newTestModel(t, store)
+
+	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'n', Text: "n"}))
+	m = got.(Model)
+
+	for _, r := range "   " {
+		got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: r, Text: string(r)}))
+		m = got.(Model)
+	}
+
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m = got.(Model)
+
+	if m.adding {
+		t.Error("enter 後も adding が true のまま")
+	}
+	if len(store.saved) != 0 {
+		t.Errorf("空白のみのタイトルで Save が呼ばれた: %+v", store.saved)
+	}
+}
+
+// 起動直後、最初の WindowSizeMsg が来る前に bubbletea は View() を呼ぶ。
+// このとき width/height は 0 で、right = width-left-4 は負になる。
+func TestViewBeforeWindowSize(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+
+	if m.width != 0 || m.height != 0 {
+		t.Fatalf("前提が崩れている: width=%d height=%d", m.width, m.height)
+	}
+	v := m.View() // panic しないこと
+	if v.Content == "" {
+		t.Error("View().Content が空")
+	}
+}
+
+// 極端に小さい端末でも落ちないこと
+func TestViewTinyTerminal(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+
+	for _, size := range [][2]int{{1, 1}, {2, 2}, {5, 3}, {0, 30}, {100, 0}} {
+		updated, _ := m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		mm := updated.(Model)
+		if v := mm.View(); v.Content == "" {
+			t.Errorf("size %v で View().Content が空", size)
+		}
+	}
+}
+
 func TestQReturnsQuitCmd(t *testing.T) {
 	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
 
