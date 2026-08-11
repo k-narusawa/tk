@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -21,6 +23,20 @@ func (f *fakeStore) Save(t domain.TaskList) error {
 	f.saved = append(f.saved, t)
 	f.list = t
 	return nil
+}
+
+// fakePRs は role ごとに1件返す。r キーや起動時の非同期取り込みを
+// 実プロセスなしで検証するためのもの。
+type fakePRs struct {
+	items map[domain.Role]domain.Item
+	err   error
+}
+
+func (f *fakePRs) Fetch(ctx context.Context, role domain.Role) ([]domain.Item, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return []domain.Item{f.items[role]}, nil
 }
 
 func taskList(s string) domain.TaskList { return domain.Parse(strings.Split(s, "\n")) }
@@ -172,5 +188,93 @@ func TestQReturnsQuitCmd(t *testing.T) {
 	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'q', Text: "q"}))
 	if cmd == nil {
 		t.Fatal("q で cmd が nil")
+	}
+}
+
+// Init() が返す cmd を実行して PR が一覧に反映されることを確認する。
+// TTY が無い環境では実際に起動して確認できないので、これがその代わり。
+func TestInitFetchesPRsAsync(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	prs := &fakePRs{items: map[domain.Role]domain.Item{
+		domain.RoleReview: {ID: domain.PRID("a/x", 1), Kind: domain.KindPR, Repo: "a/x", Number: 1, Role: domain.RoleReview},
+		domain.RoleMine:   {ID: domain.PRID("a/y", 2), Kind: domain.KindPR, Repo: "a/y", Number: 2, Role: domain.RoleMine},
+	}}
+	inbox := usecase.NewInbox(store, prs, nil)
+	if err := inbox.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	m := New(inbox)
+
+	cmd := m.Init()
+	if cmd == nil {
+		t.Fatal("Init() の cmd が nil")
+	}
+
+	msg := cmd()
+	loaded, ok := msg.(prLoadedMsg)
+	if !ok {
+		t.Fatalf("Init() の cmd が返したのは %T, want prLoadedMsg", msg)
+	}
+	if loaded.err != nil {
+		t.Fatalf("prLoadedMsg.err = %v, want nil", loaded.err)
+	}
+
+	got, _ := m.Update(loaded)
+	m = got.(Model)
+
+	found := false
+	for _, it := range m.items {
+		if it.ID == domain.PRID("a/x", 1) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("PR がリストに反映されていない: %+v", m.items)
+	}
+}
+
+// PR 取得の失敗はエラー表示に留まり、タスクの一覧には影響しないこと。
+func TestInitPRFailureKeepsTasksIntact(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	wantErr := errors.New("gh: not logged in")
+	inbox := usecase.NewInbox(store, &fakePRs{err: wantErr}, nil)
+	if err := inbox.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	m := New(inbox)
+
+	msg := m.Init()()
+	loaded, ok := msg.(prLoadedMsg)
+	if !ok {
+		t.Fatalf("Init() の cmd が返したのは %T, want prLoadedMsg", msg)
+	}
+	if loaded.err == nil {
+		t.Fatal("prLoadedMsg.err が nil, want error")
+	}
+
+	got, _ := m.Update(loaded)
+	m = got.(Model)
+
+	if m.errMsg == "" {
+		t.Error("PR 取得失敗が errMsg に反映されていない")
+	}
+
+	found := false
+	for _, it := range m.items {
+		if it.Kind == domain.KindTask && it.Title == "やること" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("PR 取得失敗でタスクが失われた")
+	}
+}
+
+func TestRKeyReturnsRefreshCmd(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'r', Text: "r"}))
+	if cmd == nil {
+		t.Fatal("r で cmd が nil")
 	}
 }

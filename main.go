@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/k-narusawa/tk/adapter/gh"
 	"github.com/k-narusawa/tk/adapter/markdown"
 	"github.com/k-narusawa/tk/adapter/tui"
 	"github.com/k-narusawa/tk/usecase"
@@ -29,7 +30,7 @@ func run() error {
 		return err
 	}
 
-	inbox := usecase.NewInbox(markdown.NewStore(path), nil, nil)
+	inbox := usecase.NewInbox(markdown.NewStore(path), gh.NewPRSource(), nil)
 	// tasks.md が読めないなら起動を中止する。空リストで起動すると、
 	// 書き戻し時に既存の内容を消しかねない。
 	if err := inbox.Load(); err != nil {

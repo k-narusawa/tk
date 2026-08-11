@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -8,7 +9,17 @@ import (
 	"github.com/k-narusawa/tk/domain"
 )
 
-func (m Model) Init() tea.Cmd { return nil }
+type prLoadedMsg struct{ err error }
+
+func (m Model) Init() tea.Cmd { return m.refreshCmd() }
+
+// refreshCmd は gh 呼び出しを tea.Cmd に包む。usecase は同期のままで、
+// 非同期にするかどうかは TUI 側が決める。
+func (m Model) refreshCmd() tea.Cmd {
+	return func() tea.Msg {
+		return prLoadedMsg{err: m.inbox.Refresh(context.Background())}
+	}
+}
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -18,6 +29,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detail.SetWidth(max(1, m.width-left-4))
 		m.detail.SetHeight(max(1, m.height-4))
 		m.input.SetWidth(max(1, m.width-4))
+		return m, nil
+
+	case prLoadedMsg:
+		if msg.err != nil {
+			m.errMsg = msg.err.Error()
+		} else {
+			m.errMsg = ""
+		}
+		m.reload()
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -100,6 +120,9 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+u":
 		m.detail.HalfPageUp()
 		return m, nil
+
+	case "r":
+		return m, m.refreshCmd()
 	}
 	return m, nil
 }
