@@ -43,7 +43,28 @@ func (f *fakePRs) Fetch(ctx context.Context, role domain.Role) ([]domain.Item, e
 	return []domain.Item{f.items[role]}, nil
 }
 
+// fakeDetails は usecase.PRDetailSource を満たす。Detail() の戻り値を固定できる。
+type fakeDetails struct {
+	detail domain.PRDetail
+	err    error
+	calls  int
+}
+
+func (f *fakeDetails) Detail(ctx context.Context, repo string, number int) (domain.PRDetail, error) {
+	f.calls++
+	return f.detail, f.err
+}
+
 func taskList(s string) domain.TaskList { return domain.Parse(strings.Split(s, "\n")) }
+
+// prPair は review/mine 双方に1件ずつ PR を持つ fakePRs を作る。
+// SortInbox の並びでは review が先に来るので items[0] が review 側になる。
+func prPair() *fakePRs {
+	return &fakePRs{items: map[domain.Role]domain.Item{
+		domain.RoleReview: {ID: domain.PRID("a/x", 1), Kind: domain.KindPR, Repo: "a/x", Number: 1, Title: "fix", Role: domain.RoleReview},
+		domain.RoleMine:   {ID: domain.PRID("a/y", 2), Kind: domain.KindPR, Repo: "a/y", Number: 2, Title: "feat", Role: domain.RoleMine},
+	}}
+}
 
 func newTestModel(t *testing.T, store *fakeStore) Model {
 	t.Helper()
@@ -323,5 +344,131 @@ func TestSuccessfulPRRefreshClearsPRError(t *testing.T) {
 
 	if m.errMsg != "" {
 		t.Errorf("PR 取得成功後も errMsg が残っている: %q", m.errMsg)
+	}
+}
+
+// タスクにカーソルが乗っているときは detailCmd() が何もしないこと。
+func TestDetailCmdNilForTaskItem(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+
+	it, ok := m.selected()
+	if !ok || it.Kind != domain.KindTask {
+		t.Fatalf("selected() = %+v, %v, want タスク", it, ok)
+	}
+	if cmd := m.detailCmd(); cmd != nil {
+		t.Error("detailCmd() がタスク選択中に nil を返さなかった")
+	}
+}
+
+// PR にカーソルを合わせたら detailCmd() が取得コマンドを返し、実行すると
+// detailLoadedMsg が届く。それを Update に渡すと View() に CI 状態が出る。
+func TestDetailCmdFetchesSelectedPRAndUpdatesView(t *testing.T) {
+	store := &fakeStore{list: taskList("")}
+	details := &fakeDetails{detail: domain.PRDetail{CI: "passing", Additions: 10, Deletions: 2, ChangedFiles: 3}}
+	inbox := usecase.NewInbox(store, prPair(), details)
+	if err := inbox.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if err := inbox.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	m := New(inbox)
+
+	it, ok := m.selected()
+	if !ok || it.Kind != domain.KindPR {
+		t.Fatalf("selected() = %+v, %v, want PR", it, ok)
+	}
+
+	cmd := m.detailCmd()
+	if cmd == nil {
+		t.Fatal("detailCmd() が nil、PR 選択中なのに取得しない")
+	}
+
+	msg := cmd()
+	loaded, ok := msg.(detailLoadedMsg)
+	if !ok {
+		t.Fatalf("detailCmd() の結果は %T, want detailLoadedMsg", msg)
+	}
+	if loaded.err != nil {
+		t.Fatalf("detailLoadedMsg.err = %v, want nil", loaded.err)
+	}
+	if loaded.detail.CI != "passing" {
+		t.Errorf("detailLoadedMsg.detail.CI = %q, want passing", loaded.detail.CI)
+	}
+
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = got.(Model)
+	got, _ = m.Update(loaded)
+	m = got.(Model)
+
+	if content := m.View().Content; !strings.Contains(content, "passing") {
+		t.Errorf("View().Content に CI 状態が出ていない: %q", content)
+	}
+}
+
+// 同じ PR が m.details にすでにあるなら detailCmd() は再取得しない。
+// カーソルを動かすたびに gh を叩き直さないための、いちばん重要な保証。
+func TestDetailCmdNilWhenAlreadyFetched(t *testing.T) {
+	store := &fakeStore{list: taskList("")}
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	if err := inbox.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if err := inbox.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	m := New(inbox)
+
+	it, ok := m.selected()
+	if !ok || it.Kind != domain.KindPR {
+		t.Fatalf("selected() = %+v, %v, want PR", it, ok)
+	}
+	m.details[it.ID] = domain.PRDetail{CI: "passing"}
+
+	if cmd := m.detailCmd(); cmd != nil {
+		t.Error("detailCmd() が取得済みの PR に対して nil を返さなかった")
+	}
+}
+
+// PRDetailSource が失敗したら errMsg に反映されるが、一覧は失われないこと。
+func TestDetailLoadedMsgErrorKeepsItemsIntact(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	wantErr := errors.New("gh: rate limited")
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{err: wantErr})
+	if err := inbox.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if err := inbox.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	m := New(inbox)
+	wantItemCount := len(m.items)
+	for i, it := range m.items {
+		if it.Kind == domain.KindPR {
+			m.cursor = i
+			break
+		}
+	}
+
+	cmd := m.detailCmd()
+	if cmd == nil {
+		t.Fatal("detailCmd() が nil")
+	}
+	loaded, ok := cmd().(detailLoadedMsg)
+	if !ok {
+		t.Fatal("detailCmd() の結果が detailLoadedMsg でない")
+	}
+	if loaded.err == nil {
+		t.Fatal("detailLoadedMsg.err が nil, want error")
+	}
+
+	got, _ := m.Update(loaded)
+	m = got.(Model)
+
+	if m.errMsg == "" {
+		t.Error("PR 詳細取得の失敗が errMsg に反映されていない")
+	}
+	if len(m.items) != wantItemCount {
+		t.Errorf("詳細取得の失敗で一覧が変わった: len = %d, want %d", len(m.items), wantItemCount)
 	}
 }

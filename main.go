@@ -30,7 +30,7 @@ func run() error {
 		return err
 	}
 
-	inbox := usecase.NewInbox(markdown.NewStore(path), gh.NewPRSource(), nil)
+	inbox := usecase.NewInbox(markdown.NewStore(path), gh.NewPRSource(), gh.NewDetailSource())
 	// tasks.md が読めないなら起動を中止する。空リストで起動すると、
 	// 書き戻し時に既存の内容を消しかねない。
 	if err := inbox.Load(); err != nil {

@@ -14,9 +14,10 @@ type Model struct {
 	items  []domain.Item
 	cursor int
 
-	detail viewport.Model
-	input  textinput.Model
-	adding bool
+	detail  viewport.Model
+	details map[domain.ID]domain.PRDetail
+	input   textinput.Model
+	adding  bool
 
 	errMsg  string
 	errIsPR bool // errMsg が PR 取得由来かどうか
@@ -31,10 +32,11 @@ func New(inbox *usecase.Inbox) Model {
 	ti.SetWidth(40)
 
 	return Model{
-		inbox:  inbox,
-		items:  inbox.Items(),
-		detail: viewport.New(viewport.WithWidth(40), viewport.WithHeight(20)),
-		input:  ti,
+		inbox:   inbox,
+		items:   inbox.Items(),
+		detail:  viewport.New(viewport.WithWidth(40), viewport.WithHeight(20)),
+		details: make(map[domain.ID]domain.PRDetail),
+		input:   ti,
 	}
 }
 

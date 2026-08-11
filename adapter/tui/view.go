@@ -62,3 +62,60 @@ func itemLabel(it domain.Item) string {
 	}
 	return mark + it.Title
 }
+
+// syncDetail は選択中アイテムの内容を viewport に流し込む。
+func (m *Model) syncDetail() {
+	it, ok := m.selected()
+	if !ok {
+		m.detail.SetContent("")
+		return
+	}
+	m.detail.SetContent(detailText(it, m.details[it.ID]))
+}
+
+func detailText(it domain.Item, d domain.PRDetail) string {
+	if it.Kind == domain.KindTask {
+		var b strings.Builder
+		b.WriteString(it.Title + "\n\n")
+		if it.Tag != "" {
+			b.WriteString("tag    : " + it.Tag + "\n")
+		}
+		state := "未完了"
+		if it.Done {
+			state = "完了"
+		}
+		b.WriteString("state  : " + state + "\n")
+		return b.String()
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "#%d %s\n\n", it.Number, it.Title)
+	fmt.Fprintf(&b, "repo   : %s\n", it.Repo)
+	fmt.Fprintf(&b, "role   : %s\n", it.Role)
+
+	if d.CI == "" && d.Reviews == "" && d.ChangedFiles == 0 {
+		b.WriteString("\n（詳細を取得中…）\n")
+		return b.String()
+	}
+	if d.CI != "" {
+		fmt.Fprintf(&b, "CI     : %s %s\n", ciMark(d.CI), d.CI)
+	}
+	if d.Reviews != "" {
+		fmt.Fprintf(&b, "review : %s\n", d.Reviews)
+	}
+	fmt.Fprintf(&b, "+%d -%d (%d files)\n", d.Additions, d.Deletions, d.ChangedFiles)
+	b.WriteString("\n" + it.URL + "\n")
+	return b.String()
+}
+
+func ciMark(state string) string {
+	switch state {
+	case "passing":
+		return "✓"
+	case "failing":
+		return "✗"
+	case "pending":
+		return "…"
+	}
+	return " "
+}
