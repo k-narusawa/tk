@@ -13,13 +13,17 @@ import (
 )
 
 type fakeStore struct {
-	list  domain.TaskList
-	saved []domain.TaskList
+	list    domain.TaskList
+	saved   []domain.TaskList
+	saveErr error
 }
 
 func (f *fakeStore) Load() (domain.TaskList, error) { return f.list, nil }
 
 func (f *fakeStore) Save(t domain.TaskList) error {
+	if f.saveErr != nil {
+		return f.saveErr
+	}
 	f.saved = append(f.saved, t)
 	f.list = t
 	return nil
@@ -276,5 +280,48 @@ func TestRKeyReturnsRefreshCmd(t *testing.T) {
 	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'r', Text: "r"}))
 	if cmd == nil {
 		t.Fatal("r で cmd が nil")
+	}
+}
+
+// 保存失敗のエラーは、その後の PR 取得成功で消えてはいけない。
+// 別々の原因のエラーを取得成功が一括で握り潰す、が今回の実バグ。
+func TestSuccessfulPRRefreshKeepsSaveError(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n"), saveErr: errors.New("disk full")}
+	inbox := usecase.NewInbox(store, &fakePRs{}, nil)
+	if err := inbox.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	m := New(inbox)
+
+	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace}))
+	m = got.(Model)
+	if m.errMsg == "" {
+		t.Fatal("保存失敗が errMsg に反映されていない")
+	}
+	saveErrMsg := m.errMsg
+
+	got, _ = m.Update(prLoadedMsg{err: nil})
+	m = got.(Model)
+
+	if m.errMsg != saveErrMsg {
+		t.Errorf("PR 取得成功で保存エラーが消えた: errMsg = %q, want %q", m.errMsg, saveErrMsg)
+	}
+}
+
+// PR 取得エラー自体は、次の取得成功で消えること。
+func TestSuccessfulPRRefreshClearsPRError(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+
+	got, _ := m.Update(prLoadedMsg{err: errors.New("gh: not logged in")})
+	m = got.(Model)
+	if m.errMsg == "" {
+		t.Fatal("PR 取得失敗が errMsg に反映されていない")
+	}
+
+	got, _ = m.Update(prLoadedMsg{err: nil})
+	m = got.(Model)
+
+	if m.errMsg != "" {
+		t.Errorf("PR 取得成功後も errMsg が残っている: %q", m.errMsg)
 	}
 }

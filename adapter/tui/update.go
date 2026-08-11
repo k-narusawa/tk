@@ -33,9 +33,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case prLoadedMsg:
 		if msg.err != nil {
-			m.errMsg = msg.err.Error()
-		} else {
-			m.errMsg = ""
+			m.errMsg, m.errIsPR = msg.err.Error(), true
+		} else if m.errIsPR {
+			// PR 取得のエラーだけを消す。保存失敗などは残す。
+			m.errMsg, m.errIsPR = "", false
 		}
 		m.reload()
 		return m, nil
@@ -60,10 +61,10 @@ func (m Model) updateAdding(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if err := m.inbox.Add(title); err != nil {
-			m.errMsg = err.Error()
+			m.errMsg, m.errIsPR = err.Error(), false
 			return m, nil
 		}
-		m.errMsg = ""
+		m.errMsg, m.errIsPR = "", false
 		m.reload()
 		return m, nil
 
@@ -102,10 +103,10 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if err := m.inbox.Toggle(it.ID); err != nil {
-			m.errMsg = err.Error()
+			m.errMsg, m.errIsPR = err.Error(), false
 			return m, nil
 		}
-		m.errMsg = ""
+		m.errMsg, m.errIsPR = "", false
 		m.reload()
 		return m, nil
 

@@ -18,7 +18,9 @@ type Model struct {
 	input  textinput.Model
 	adding bool
 
-	errMsg        string
+	errMsg  string
+	errIsPR bool // errMsg が PR 取得由来かどうか
+
 	width, height int
 }
 

@@ -82,10 +82,19 @@ func run(ctx context.Context, args ...string) ([]byte, error) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		if msg := bytes.TrimSpace(stderr.Bytes()); len(msg) > 0 {
-			return nil, fmt.Errorf("gh: %s", msg)
-		}
-		return nil, fmt.Errorf("gh: %w", err)
+		return nil, wrapRunError(err, stderr.Bytes(), ctx.Err())
 	}
 	return stdout.Bytes(), nil
+}
+
+// wrapRunError は gh の失敗を利用者に読める error にする。
+// stderr があればそれを最優先する。無ければタイムアウトかどうかを見る。
+func wrapRunError(err error, stderr []byte, ctxErr error) error {
+	if msg := bytes.TrimSpace(stderr); len(msg) > 0 {
+		return fmt.Errorf("gh: %s", msg)
+	}
+	if ctxErr != nil {
+		return fmt.Errorf("gh: %s でタイムアウトしました。r で再試行できます", timeout)
+	}
+	return fmt.Errorf("gh: %w", err)
 }

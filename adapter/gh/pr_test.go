@@ -1,6 +1,10 @@
 package gh
 
 import (
+	"context"
+	"errors"
+	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/k-narusawa/tk/domain"
@@ -67,6 +71,60 @@ func TestSearchArgsByRole(t *testing.T) {
 		if !contains(args, tt.want) {
 			t.Errorf("searchArgs(%q) = %v, %q が含まれない", tt.role, args, tt.want)
 		}
+	}
+}
+
+func TestWrapRunError(t *testing.T) {
+	_, missingBinErr := exec.LookPath("tk-nonexistent-binary")
+
+	tests := []struct {
+		name      string
+		err       error
+		stderr    string
+		ctxErr    error
+		wantIn    string
+		wantNotIn string
+	}{
+		{
+			name:   "stderrあり タイムアウトでない",
+			err:    errors.New("exit status 1"),
+			stderr: "gh: not logged in\n",
+			ctxErr: nil,
+			wantIn: "not logged in",
+		},
+		{
+			name:      "stderrあり タイムアウトでも stderr が優先される",
+			err:       errors.New("signal: killed"),
+			stderr:    "gh: rate limited\n",
+			ctxErr:    context.DeadlineExceeded,
+			wantIn:    "rate limited",
+			wantNotIn: "タイムアウト",
+		},
+		{
+			name:   "stderr無し タイムアウト",
+			err:    errors.New("signal: killed"),
+			stderr: "",
+			ctxErr: context.DeadlineExceeded,
+			wantIn: "タイムアウト",
+		},
+		{
+			name:   "stderr無し タイムアウトでもない",
+			err:    missingBinErr,
+			stderr: "",
+			ctxErr: nil,
+			wantIn: missingBinErr.Error(),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := wrapRunError(tt.err, []byte(tt.stderr), tt.ctxErr)
+			if !strings.Contains(got.Error(), tt.wantIn) {
+				t.Errorf("wrapRunError() = %q, %q を含んでいない", got, tt.wantIn)
+			}
+			if tt.wantNotIn != "" && strings.Contains(got.Error(), tt.wantNotIn) {
+				t.Errorf("wrapRunError() = %q, %q を含んではいけない", got, tt.wantNotIn)
+			}
+		})
 	}
 }
 
