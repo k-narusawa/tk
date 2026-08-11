@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -654,6 +655,49 @@ func TestPanesHaveEqualHeight(t *testing.T) {
 			t.Errorf("size %v: 左右の枠の高さが違う（左=%d行目, 右=%d行目, 差=%d行）",
 				size, leftClose, rightClose, rightClose-leftClose)
 		}
+	}
+}
+
+// 一覧が端末に収まらない件数でも、レンダリング全体の行数が端末の高さを
+// 超えないこと。超えるとフッタ（エラー表示）が画面外に押し出される。
+func TestListDoesNotOverflowTerminalHeight(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&b, "- [ ] item%d\n", i)
+	}
+	m := newTestModel(t, &fakeStore{list: taskList(b.String())})
+
+	for _, size := range [][2]int{{100, 20}, {80, 24}, {60, 15}} {
+		updated, _ := m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		mm := updated.(Model)
+		lines := strings.Split(mm.View().Content, "\n")
+		if len(lines) > size[1] {
+			t.Errorf("size %v: レンダリング行数 = %d, want <= %d", size, len(lines), size[1])
+		}
+	}
+}
+
+// 一覧が窓に収まらない件数のとき、カーソルを下まで送るとその行が
+// レンダリングに含まれ続けること（窓が追従してスクロールする）。
+func TestListScrollsCursorIntoView(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&b, "- [ ] item%d\n", i)
+	}
+	m := newTestModel(t, &fakeStore{list: taskList(b.String())})
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	mm := updated.(Model)
+
+	for i := 0; i < 39; i++ {
+		got, _ := mm.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+		mm = got.(Model)
+	}
+	if mm.cursor != 39 {
+		t.Fatalf("cursor = %d, want 39", mm.cursor)
+	}
+	if !strings.Contains(mm.View().Content, "item39") {
+		t.Errorf("窓が追従せず、末尾のカーソル行が表示に含まれていない: %q", mm.View().Content)
 	}
 }
 

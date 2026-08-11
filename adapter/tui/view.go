@@ -15,12 +15,12 @@ const help = " j/k:移動 space:完了 n:追加 enter:開く d:diff a/A:AI r:更
 func (m Model) View() tea.View {
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder())
 	left := m.width * 40 / 100
-	right := m.width - left - 4
+	right := m.width - left
 	inner := max(1, m.height-4)
 
 	body := lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		box.Width(max(1, left)).Height(inner).Render(m.listView()),
+		box.Width(max(1, left)).Height(inner).Render(m.listView(inner-2)),
 		box.Width(max(1, right)).Height(inner).Render(m.detail.View()),
 	)
 
@@ -45,9 +45,21 @@ func (m Model) View() tea.View {
 	return v
 }
 
-func (m Model) listView() string {
+// listView は一覧のうち高さ rows に収まる範囲だけを描画する。box.Height は
+// 最小値であってクランプではないので、全件を無条件に出すと箱が端末を超えて
+// 伸び、フッタが画面外に押し出される（保存失敗などのエラーが見えなくなる）。
+// カーソルが窓の下端を超えたら追従してスクロールする。
+func (m Model) listView(rows int) string {
+	rows = max(1, rows)
+	start := 0
+	if m.cursor >= rows {
+		start = m.cursor - rows + 1
+	}
+	end := min(len(m.items), start+rows)
+
 	var b strings.Builder
-	for i, it := range m.items {
+	for i := start; i < end; i++ {
+		it := m.items[i]
 		cursor := " "
 		if i == m.cursor {
 			cursor = ">"
