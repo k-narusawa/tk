@@ -217,6 +217,67 @@ func TestRefreshPropagatesError(t *testing.T) {
 	}
 }
 
+// partialFailurePRs は role ごとに呼び出し回数を数え、2回目の Fetch で
+// review 側は別の PR を返し、mine 側はエラーを返す。「片方失敗」を再現する。
+type partialFailurePRs struct {
+	mu    sync.Mutex
+	calls map[domain.Role]int
+}
+
+func (f *partialFailurePRs) Fetch(ctx context.Context, role domain.Role) ([]domain.Item, error) {
+	f.mu.Lock()
+	f.calls[role]++
+	n := f.calls[role]
+	f.mu.Unlock()
+
+	if role == domain.RoleMine && n == 2 {
+		return nil, errors.New("rate limited")
+	}
+	if role == domain.RoleReview && n == 2 {
+		return []domain.Item{pr("a/z", 3, domain.RoleReview)}, nil
+	}
+	if role == domain.RoleReview {
+		return []domain.Item{pr("a/x", 1, domain.RoleReview)}, nil
+	}
+	return []domain.Item{pr("a/y", 2, domain.RoleMine)}, nil
+}
+
+func containsPR(items []domain.Item, repo string, number int) bool {
+	for _, it := range items {
+		if it.Repo == repo && it.Number == number {
+			return true
+		}
+	}
+	return false
+}
+
+// 2回目の Refresh で review は成功、mine は失敗する状況を再現する。
+// このとき、片方の失敗で良い状態の一覧を上書きしてはいけない。
+func TestRefreshKeepsPreviousPRsOnPartialFailure(t *testing.T) {
+	prs := &partialFailurePRs{calls: make(map[domain.Role]int)}
+	in := NewInbox(&fakeStore{list: taskList("")}, prs, &fakeDetails{})
+
+	if err := in.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() 1回目 error = %v", err)
+	}
+	items := in.Items()
+	if !containsPR(items, "a/x", 1) || !containsPR(items, "a/y", 2) {
+		t.Fatalf("1回目後の Items() = %+v", items)
+	}
+
+	if err := in.Refresh(context.Background()); err == nil {
+		t.Fatal("Refresh() 2回目でエラーが返らなかった")
+	}
+
+	items = in.Items()
+	if !containsPR(items, "a/x", 1) || !containsPR(items, "a/y", 2) {
+		t.Errorf("部分失敗後に以前の一覧が失われた: %+v", items)
+	}
+	if containsPR(items, "a/z", 3) {
+		t.Errorf("部分失敗なのに新しい review PR が反映されている: %+v", items)
+	}
+}
+
 func TestFind(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
 	in := NewInbox(store, &fakePRs{}, &fakeDetails{})
