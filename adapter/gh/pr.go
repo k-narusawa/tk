@@ -60,6 +60,9 @@ func parsePRs(data []byte, role domain.Role) ([]domain.Item, error) {
 	items := make([]domain.Item, 0, len(results))
 	for _, r := range results {
 		repo := r.Repository.NameWithOwner
+		if repo == "" {
+			return nil, fmt.Errorf("gh の出力に repository が無い（PR #%d）", r.Number)
+		}
 		items = append(items, domain.Item{
 			ID:     domain.PRID(repo, r.Number),
 			Kind:   domain.KindPR,

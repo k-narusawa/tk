@@ -33,7 +33,7 @@ func SortInbox(tasks, prs []Item) []Item {
 		}
 	}
 	for _, it := range prs {
-		if it.Role == RoleMine {
+		if it.Role != RoleReview {
 			out = append(out, it)
 		}
 	}

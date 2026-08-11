@@ -52,6 +52,16 @@ func TestParsePRsEmpty(t *testing.T) {
 	}
 }
 
+// repository が空の要素はエラーにする。PRID("", n) は他のリポジトリの
+// PR とID衝突して MergePRs に一方を消され、しかも空 Repo は
+// gh pr view --repo "" のようにその後の操作でも使い物にならない。
+func TestParsePRsEmptyRepoErrors(t *testing.T) {
+	data := []byte(`[{"number":1,"title":"t","repository":{"nameWithOwner":""},"url":"https://x"}]`)
+	if _, err := parsePRs(data, domain.RoleMine); err == nil {
+		t.Error("repository が空でエラーが返らなかった")
+	}
+}
+
 func TestParsePRsBrokenJSON(t *testing.T) {
 	if _, err := parsePRs([]byte(`not json`), domain.RoleMine); err == nil {
 		t.Error("壊れた JSON でエラーが返らなかった")

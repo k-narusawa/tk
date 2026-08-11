@@ -75,6 +75,17 @@ func TestSortInbox(t *testing.T) {
 	}
 }
 
+// Role の値は RoleReview/RoleMine の2つに限らない（ゼロ値など）。
+// 2本の PR ループが RoleReview / RoleMine で分岐していると、どちらにも
+// 一致しない Role のアイテムが一覧から消える。
+func TestSortInboxKeepsUnknownRole(t *testing.T) {
+	prs := []Item{pr("a/x", 1, Role(""))}
+	got := SortInbox(nil, prs)
+	if len(got) != 1 || got[0].ID != PRID("a/x", 1) {
+		t.Errorf("Role がゼロ値の PR が失われた: %+v", got)
+	}
+}
+
 func TestSortInboxTasksOnly(t *testing.T) {
 	tasks := []Item{{ID: TaskID(0), Kind: KindTask, Title: "だけ"}}
 	got := SortInbox(tasks, nil)
