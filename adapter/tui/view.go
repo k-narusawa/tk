@@ -31,6 +31,11 @@ func (m Model) View() tea.View {
 	if m.adding {
 		footer = m.input.View()
 	}
+	// 端末幅に収める。ヘルプは固定 64 桁あり、gh の stderr はさらに長くなる。
+	// 溢れると折り返してレイアウトが崩れる。
+	if m.width > 0 {
+		footer = lipgloss.NewStyle().MaxWidth(m.width).Render(footer)
+	}
 
 	v := tea.NewView(body + "\n" + footer)
 	v.AltScreen = true

@@ -635,9 +635,7 @@ func TestPanesHaveEqualHeight(t *testing.T) {
 		lines := strings.Split(mm.View().Content, "\n")
 
 		leftClose, rightClose := -1, -1
-		// 最終行はフッター（help/エラー文言）。ペインの箱とは無関係な
-		// 固定文言で、狭い端末では別途溢れうる（既知の別問題、ここでは対象外）。
-		for i, ln := range lines[:len(lines)-1] {
+		for i, ln := range lines {
 			if leftClose < 0 && strings.HasPrefix(ln, "╰") {
 				leftClose = i
 			}
