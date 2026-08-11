@@ -107,7 +107,7 @@ func TestTogglePreservesIndentAndSpacing(t *testing.T) {
 }
 
 func TestParseIgnoresNonCheckboxLines(t *testing.T) {
-	src := "- ふつうの�条書き\n- [] 閉じ括弧の形が違う\n* [ ] アスタリスク\n"
+	src := "- ふつうの箇条書き\n- [] 閉じ括弧の形が違う\n* [ ] アスタリスク\n"
 	if n := len(Parse(lines(src)).Items()); n != 0 {
 		t.Errorf("チェックボックス以外を拾った: %d 件", n)
 	}
