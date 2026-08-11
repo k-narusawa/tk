@@ -79,3 +79,22 @@ func TestCommandEmptyAICmd(t *testing.T) {
 		t.Error("空の AI コマンドでエラーが返らなかった")
 	}
 }
+
+// TK_AI_CMD にフラグを含められること（例: "claude --print"）。
+func TestCommandWithArgs(t *testing.T) {
+	items := []domain.Item{{ID: domain.TaskID(0), Kind: domain.KindTask, Title: "やること"}}
+
+	cmd, err := Command("claude --print", items)
+	if err != nil {
+		t.Fatalf("Command() error = %v", err)
+	}
+	t.Cleanup(func() { os.Remove(cmd.Args[len(cmd.Args)-1]) })
+
+	want := []string{"claude", "--print"}
+	if cmd.Args[0] != want[0] || cmd.Args[1] != want[1] {
+		t.Errorf("Args[:2] = %v, want %v", cmd.Args[:2], want)
+	}
+	if len(cmd.Args) != 3 {
+		t.Fatalf("Args = %v, want 3 要素", cmd.Args)
+	}
+}

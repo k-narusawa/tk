@@ -38,7 +38,8 @@ func Render(items []domain.Item) string {
 // Command は内容を一時ファイルに書き、$TK_AI_CMD <path> の *exec.Cmd を返す。
 // tea.ExecProcess で包むのは adapter/tui の仕事。
 func Command(aiCmd string, items []domain.Item) (*exec.Cmd, error) {
-	if strings.TrimSpace(aiCmd) == "" {
+	fields := strings.Fields(aiCmd)
+	if len(fields) == 0 {
 		return nil, errors.New("TK_AI_CMD が空")
 	}
 
@@ -55,5 +56,5 @@ func Command(aiCmd string, items []domain.Item) (*exec.Cmd, error) {
 		os.Remove(f.Name())
 		return nil, err
 	}
-	return exec.Command(aiCmd, f.Name()), nil
+	return exec.Command(fields[0], append(fields[1:], f.Name())...), nil
 }
