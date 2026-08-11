@@ -50,10 +50,13 @@ type fakeDetails struct {
 	detail domain.PRDetail
 	err    error
 	calls  int
+	mu     sync.Mutex
 }
 
 func (f *fakeDetails) Detail(ctx context.Context, repo string, number int) (domain.PRDetail, error) {
+	f.mu.Lock()
 	f.calls++
+	f.mu.Unlock()
 	return f.detail, f.err
 }
 
@@ -226,5 +229,68 @@ func TestFind(t *testing.T) {
 	}
 	if _, ok := in.Find(domain.TaskID(99)); ok {
 		t.Error("Find が存在しない ID を見つけた")
+	}
+}
+
+func TestConcurrentAccess(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	prs := &fakePRs{byRole: map[domain.Role][]domain.Item{
+		domain.RoleReview: {pr("a/x", 1, domain.RoleReview), pr("b/y", 2, domain.RoleReview)},
+		domain.RoleMine:   {pr("c/z", 3, domain.RoleMine), pr("d/w", 4, domain.RoleMine)},
+	}}
+	details := &fakeDetails{detail: domain.PRDetail{CI: "passing"}}
+
+	in := NewInbox(store, prs, details)
+	if err := in.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if err := in.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, 10)
+
+	// Detail from multiple goroutines with distinct PR IDs
+	for i := 1; i <= 4; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			id := domain.PRID([]string{"a/x", "b/y", "c/z", "d/w"}[idx-1], idx)
+			_, err := in.Detail(context.Background(), id)
+			if err != nil {
+				errCh <- err
+			}
+		}(i)
+	}
+
+	// Concurrent Items and Find calls
+	for range 5 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = in.Items()
+		}()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = in.Find(domain.TaskID(0))
+		}()
+	}
+
+	// Concurrent Toggle calls
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := in.Toggle(domain.TaskID(0)); err != nil {
+			errCh <- err
+		}
+	}()
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Errorf("concurrent access error: %v", err)
 	}
 }

@@ -13,6 +13,7 @@ type Inbox struct {
 	prs     PRSource
 	details PRDetailSource
 
+	mu      sync.Mutex
 	tasks   domain.TaskList
 	prItems []domain.Item
 	cache   map[domain.ID]domain.PRDetail
@@ -32,16 +33,27 @@ func (i *Inbox) Load() error {
 	if err != nil {
 		return err
 	}
+	i.mu.Lock()
 	i.tasks = t
+	i.mu.Unlock()
 	return nil
 }
 
-func (i *Inbox) Items() []domain.Item {
+// items assumes i.mu is held.
+func (i *Inbox) items() []domain.Item {
 	return domain.SortInbox(i.tasks.Items(), i.prItems)
 }
 
+func (i *Inbox) Items() []domain.Item {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.items()
+}
+
 func (i *Inbox) Find(id domain.ID) (domain.Item, bool) {
-	for _, it := range i.Items() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	for _, it := range i.items() {
 		if it.ID == id {
 			return it, true
 		}
@@ -72,14 +84,27 @@ func (i *Inbox) Refresh(ctx context.Context) error {
 	if errMine != nil {
 		return errMine
 	}
-	i.prItems = domain.MergePRs(review, mine)
+
+	merged := domain.MergePRs(review, mine)
+	i.mu.Lock()
+	i.prItems = merged
+	i.mu.Unlock()
 	return nil
 }
 
-func (i *Inbox) Toggle(id domain.ID) error { return i.save(i.tasks.Toggle(id)) }
+func (i *Inbox) Toggle(id domain.ID) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.save(i.tasks.Toggle(id))
+}
 
-func (i *Inbox) Add(title string) error { return i.save(i.tasks.Add(title)) }
+func (i *Inbox) Add(title string) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.save(i.tasks.Add(title))
+}
 
+// save assumes i.mu is held.
 // save は書き込みが成功してから内部状態を差し替える。
 // 逆にすると、失敗したときに画面とファイルが食い違う。
 func (i *Inbox) save(next domain.TaskList) error {
@@ -92,19 +117,32 @@ func (i *Inbox) save(next domain.TaskList) error {
 
 // Detail は右ペインに表示するときに初めて呼ばれる。結果はキャッシュする。
 func (i *Inbox) Detail(ctx context.Context, id domain.ID) (domain.PRDetail, error) {
-	if d, ok := i.cache[id]; ok {
-		return d, nil
-	}
+	i.mu.Lock()
+	cached, hit := i.cache[id]
+	var target domain.Item
+	found := false
 	for _, it := range i.prItems {
-		if it.ID != id {
-			continue
+		if it.ID == id {
+			target, found = it, true
+			break
 		}
-		d, err := i.details.Detail(ctx, it.Repo, it.Number)
-		if err != nil {
-			return domain.PRDetail{}, err
-		}
-		i.cache[id] = d
-		return d, nil
 	}
-	return domain.PRDetail{}, fmt.Errorf("PR が見つからない: %s", id)
+	i.mu.Unlock()
+
+	if hit {
+		return cached, nil
+	}
+	if !found {
+		return domain.PRDetail{}, fmt.Errorf("PR が見つからない: %s", id)
+	}
+
+	d, err := i.details.Detail(ctx, target.Repo, target.Number)
+	if err != nil {
+		return domain.PRDetail{}, err
+	}
+
+	i.mu.Lock()
+	i.cache[id] = d
+	i.mu.Unlock()
+	return d, nil
 }
