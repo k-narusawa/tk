@@ -786,3 +786,25 @@ func TestSuccessfulPRRefreshKeepsExecError(t *testing.T) {
 		t.Errorf("PR 取得成功で外部プロセスのエラーが消えた: errMsg = %q, want %q", m.errMsg, execErrMsg)
 	}
 }
+
+// 逆方向: 外部プロセスの成功は、無関係な保存失敗のエラーを消してはいけない。
+// 外部プロセスには「成功」以外に報告することがないので、成功時は errMsg に
+// 触れないのが正しい（prLoadedMsg が errIsPR でガードするのと同じ理由）。
+func TestSuccessfulExecKeepsSaveError(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n"), saveErr: errors.New("disk full")}
+	m := newTestModel(t, store)
+
+	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace}))
+	m = got.(Model)
+	if m.errMsg == "" {
+		t.Fatal("保存失敗が errMsg に反映されていない")
+	}
+	saveErrMsg := m.errMsg
+
+	got, _ = m.Update(execDoneMsg{err: nil})
+	m = got.(Model)
+
+	if m.errMsg != saveErrMsg {
+		t.Errorf("外部プロセスの成功で保存エラーが消えた: errMsg = %q, want %q", m.errMsg, saveErrMsg)
+	}
+}

@@ -97,10 +97,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case execDoneMsg:
+		// 成功しても errMsg は消さない。保存失敗など無関係なエラーを
+		// 握り潰さないため（prLoadedMsg の errIsPR ガードと同じ理由）。
 		if msg.err != nil {
 			m.errMsg, m.errIsPR = msg.err.Error(), false
-		} else {
-			m.errMsg, m.errIsPR = "", false
 		}
 		return m, nil
 
