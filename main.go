@@ -7,10 +7,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/k-narusawa/tk/adapter/gh"
-	"github.com/k-narusawa/tk/adapter/markdown"
-	"github.com/k-narusawa/tk/adapter/tui"
-	"github.com/k-narusawa/tk/usecase"
+	"github.com/k-narusawa/tk/internal/adapter/gh"
+	"github.com/k-narusawa/tk/internal/adapter/markdown"
+	"github.com/k-narusawa/tk/internal/adapter/tui"
+	"github.com/k-narusawa/tk/internal/usecase"
 )
 
 func tasksPath() (string, error) {

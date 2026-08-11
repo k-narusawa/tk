@@ -10,8 +10,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/k-narusawa/tk/domain"
-	"github.com/k-narusawa/tk/usecase"
+	"github.com/k-narusawa/tk/internal/domain"
+	"github.com/k-narusawa/tk/internal/usecase"
 )
 
 type fakeStore struct {

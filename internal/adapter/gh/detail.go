@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/k-narusawa/tk/domain"
+	"github.com/k-narusawa/tk/internal/domain"
 )
 
 type DetailSource struct{}

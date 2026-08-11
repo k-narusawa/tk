@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/k-narusawa/tk/domain"
+	"github.com/k-narusawa/tk/internal/domain"
 )
 
 // gh search prs --state=open --author=@me --json number,title,repository,url の実出力

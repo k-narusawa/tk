@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/k-narusawa/tk/domain"
+	"github.com/k-narusawa/tk/internal/domain"
 )
 
 // Store は Load 時点のファイルの mtime/size を憶えておき、Save 時に外部で

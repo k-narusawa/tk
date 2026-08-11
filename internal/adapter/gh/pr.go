@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/k-narusawa/tk/domain"
+	"github.com/k-narusawa/tk/internal/domain"
 )
 
 // timeout は gh の打ち切り時間。遅いネットワークで TUI を待たせない。

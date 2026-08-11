@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/k-narusawa/tk/domain"
+	"github.com/k-narusawa/tk/internal/domain"
 )
 
 func TestRenderTask(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/k-narusawa/tk/domain"
+	"github.com/k-narusawa/tk/internal/domain"
 )
 
 type fakeStore struct {

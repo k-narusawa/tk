@@ -6,9 +6,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/k-narusawa/tk/adapter/ai"
-	"github.com/k-narusawa/tk/adapter/gh"
-	"github.com/k-narusawa/tk/domain"
+	"github.com/k-narusawa/tk/internal/adapter/ai"
+	"github.com/k-narusawa/tk/internal/adapter/gh"
+	"github.com/k-narusawa/tk/internal/domain"
 )
 
 type prLoadedMsg struct{ err error }

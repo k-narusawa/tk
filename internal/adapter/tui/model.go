@@ -4,8 +4,8 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 
-	"github.com/k-narusawa/tk/domain"
-	"github.com/k-narusawa/tk/usecase"
+	"github.com/k-narusawa/tk/internal/domain"
+	"github.com/k-narusawa/tk/internal/usecase"
 )
 
 // detailEntry は取得済みの詳細と、取得に失敗した場合の理由を持つ。

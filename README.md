@@ -50,17 +50,17 @@ TK_TASKS_FILE=/tmp/t.md ./tk   # 自分の tasks.md を汚さずに試す
 
 | ディレクトリ | 責務 | import してよいもの |
 |---|---|---|
-| `domain/` | `Item` の構造、Markdown の解釈と生成、並び順。純粋関数のみ | 標準ライブラリのみ（実質 `strings` / `fmt`） |
-| `usecase/` | アプリの手順。ポートの interface を自分で定義し、実装は知らない | `domain` + 標準ライブラリ |
-| `adapter/tui` | bubbletea / lipgloss / bubbles への依存はここだけ | 全部 |
-| `adapter/markdown` | `tasks.md` の読み書き（tmp + `os.Rename` で atomic） | |
-| `adapter/gh` | `gh` サブプロセス。`*exec.Cmd` を返すだけで実行しない | |
-| `adapter/ai` | AI CLI 用の一時ファイル生成と `*exec.Cmd` 組み立て | |
+| `internal/domain/` | `Item` の構造、Markdown の解釈と生成、並び順。純粋関数のみ | 標準ライブラリのみ（実質 `strings` / `fmt`） |
+| `internal/usecase/` | アプリの手順。ポートの interface を自分で定義し、実装は知らない | `internal/domain` + 標準ライブラリ |
+| `internal/adapter/tui` | bubbletea / lipgloss / bubbles への依存はここだけ | 全部 |
+| `internal/adapter/markdown` | `tasks.md` の読み書き（tmp + `os.Rename` で atomic） | |
+| `internal/adapter/gh` | `gh` サブプロセス。`*exec.Cmd` を返すだけで実行しない | |
+| `internal/adapter/ai` | AI CLI 用の一時ファイル生成と `*exec.Cmd` 組み立て | |
 | `main.go` | 環境変数読み → DI 配線 → `tea.NewProgram`。唯一全層を知る | |
 
-外部プロセスを `tea.ExecProcess` で包むのは `adapter/tui` の仕事。`adapter/ai` と `adapter/gh` は `*exec.Cmd` を返すだけにしてあるので、TUI を起動せずにコマンド引数をテストできる。
+外部プロセスを `tea.ExecProcess` で包むのは `internal/adapter/tui` の仕事。`internal/adapter/ai` と `internal/adapter/gh` は `*exec.Cmd` を返すだけにしてあるので、TUI を起動せずにコマンド引数をテストできる。
 
-新しい外部サービス（Jira 等）を足すときは、`usecase.PRSource` と同じ形のポートを1つ追加して `adapter/` に実装を置く。
+新しい外部サービス（Jira 等）を足すときは、`internal/usecase.PRSource` と同じ形のポートを1つ追加して `internal/adapter/` に実装を置く。
 
 ### 変更するときに踏み外しやすい点
 

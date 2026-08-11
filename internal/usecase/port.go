@@ -3,7 +3,7 @@ package usecase
 import (
 	"context"
 
-	"github.com/k-narusawa/tk/domain"
+	"github.com/k-narusawa/tk/internal/domain"
 )
 
 // TaskStore は tasks.md の読み書き。adapter/markdown が実装する。
