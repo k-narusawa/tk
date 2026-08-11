@@ -8,6 +8,13 @@ import (
 	"github.com/k-narusawa/tk/usecase"
 )
 
+// detailEntry は取得済みの詳細と、取得に失敗した場合の理由を持つ。
+// マップに無い = まだ取得していない。
+type detailEntry struct {
+	detail domain.PRDetail
+	err    string
+}
+
 type Model struct {
 	inbox *usecase.Inbox
 
@@ -15,7 +22,7 @@ type Model struct {
 	cursor int
 
 	detail  viewport.Model
-	details map[domain.ID]domain.PRDetail
+	details map[domain.ID]detailEntry
 	input   textinput.Model
 	adding  bool
 
@@ -35,7 +42,7 @@ func New(inbox *usecase.Inbox) Model {
 		inbox:   inbox,
 		items:   inbox.Items(),
 		detail:  viewport.New(viewport.WithWidth(40), viewport.WithHeight(20)),
-		details: make(map[domain.ID]domain.PRDetail),
+		details: make(map[domain.ID]detailEntry),
 		input:   ti,
 	}
 }

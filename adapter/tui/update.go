@@ -69,9 +69,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case detailLoadedMsg:
 		if msg.err != nil {
 			m.errMsg, m.errIsPR = msg.err.Error(), true
-			return m, nil
+			m.details[msg.id] = detailEntry{err: msg.err.Error()}
+		} else {
+			m.details[msg.id] = detailEntry{detail: msg.detail}
 		}
-		m.details[msg.id] = msg.detail
 		m.syncDetail()
 		return m, nil
 
@@ -100,7 +101,8 @@ func (m Model) updateAdding(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.errMsg, m.errIsPR = "", false
 		m.reload()
-		return m, nil
+		m.syncDetail()
+		return m, m.detailCmd()
 
 	case "esc":
 		m.adding = false
@@ -144,7 +146,8 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.errMsg, m.errIsPR = "", false
 		m.reload()
-		return m, nil
+		m.syncDetail()
+		return m, m.detailCmd()
 
 	case "n":
 		m.adding = true

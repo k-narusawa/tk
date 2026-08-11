@@ -70,10 +70,11 @@ func (m *Model) syncDetail() {
 		m.detail.SetContent("")
 		return
 	}
-	m.detail.SetContent(detailText(it, m.details[it.ID]))
+	e, loaded := m.details[it.ID]
+	m.detail.SetContent(detailText(it, e, loaded))
 }
 
-func detailText(it domain.Item, d domain.PRDetail) string {
+func detailText(it domain.Item, e detailEntry, loaded bool) string {
 	if it.Kind == domain.KindTask {
 		var b strings.Builder
 		b.WriteString(it.Title + "\n\n")
@@ -93,10 +94,15 @@ func detailText(it domain.Item, d domain.PRDetail) string {
 	fmt.Fprintf(&b, "repo   : %s\n", it.Repo)
 	fmt.Fprintf(&b, "role   : %s\n", it.Role)
 
-	if d.CI == "" && d.Reviews == "" && d.ChangedFiles == 0 {
+	if !loaded {
 		b.WriteString("\n（詳細を取得中…）\n")
 		return b.String()
 	}
+	if e.err != "" {
+		fmt.Fprintf(&b, "\n（詳細を取得できませんでした: %s）\n", e.err)
+		return b.String()
+	}
+	d := e.detail
 	if d.CI != "" {
 		fmt.Fprintf(&b, "CI     : %s %s\n", ciMark(d.CI), d.CI)
 	}

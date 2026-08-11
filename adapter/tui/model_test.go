@@ -423,7 +423,7 @@ func TestDetailCmdNilWhenAlreadyFetched(t *testing.T) {
 	if !ok || it.Kind != domain.KindPR {
 		t.Fatalf("selected() = %+v, %v, want PR", it, ok)
 	}
-	m.details[it.ID] = domain.PRDetail{CI: "passing"}
+	m.details[it.ID] = detailEntry{detail: domain.PRDetail{CI: "passing"}}
 
 	if cmd := m.detailCmd(); cmd != nil {
 		t.Error("detailCmd() が取得済みの PR に対して nil を返さなかった")
@@ -470,5 +470,154 @@ func TestDetailLoadedMsgErrorKeepsItemsIntact(t *testing.T) {
 	}
 	if len(m.items) != wantItemCount {
 		t.Errorf("詳細取得の失敗で一覧が変わった: len = %d, want %d", len(m.items), wantItemCount)
+	}
+}
+
+// 詳細ペインは「未取得 / 取得成功 / 取得失敗」の3状態を区別する。
+// 取得失敗時に「取得中」のまま固まってはいけない。
+func TestDetailPaneThreeStates(t *testing.T) {
+	store := &fakeStore{list: taskList("")}
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	if err := inbox.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if err := inbox.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	m := New(inbox)
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = got.(Model)
+
+	if len(m.items) < 2 || m.items[0].Kind != domain.KindPR || m.items[1].Kind != domain.KindPR {
+		t.Fatalf("前提が崩れている: PR が2件必要 items = %+v", m.items)
+	}
+	first, second := m.items[0], m.items[1]
+
+	// 未取得
+	if content := m.View().Content; !strings.Contains(content, "取得中") {
+		t.Errorf("未取得なのに「取得中」が出ていない: %q", content)
+	}
+
+	// 取得成功
+	got, _ = m.Update(detailLoadedMsg{id: first.ID, detail: domain.PRDetail{CI: "passing"}})
+	m = got.(Model)
+	content := m.View().Content
+	if strings.Contains(content, "取得中") {
+		t.Errorf("成功後も「取得中」が残っている: %q", content)
+	}
+	if !strings.Contains(content, "passing") {
+		t.Errorf("成功後に CI 状態が出ていない: %q", content)
+	}
+
+	// カーソルを未取得の2件目に移す
+	m.cursor = 1
+	m.syncDetail()
+	if content := m.View().Content; !strings.Contains(content, "取得中") {
+		t.Errorf("未取得の2件目で「取得中」が出ていない: %q", content)
+	}
+
+	// 取得失敗
+	got, _ = m.Update(detailLoadedMsg{id: second.ID, err: errors.New("gh: rate limited")})
+	m = got.(Model)
+	content = m.View().Content
+	if strings.Contains(content, "取得中") {
+		t.Errorf("失敗後も「取得中」が残っている: %q", content)
+	}
+	if !strings.Contains(content, "取得できませんでした") {
+		t.Errorf("失敗が詳細ペインに反映されていない: %q", content)
+	}
+}
+
+// 成功したのに CI・レビュー・差分ファイル数がすべて空/ゼロの PRDetail は、
+// 旧ロジック（フィールドの空っぽさで「未取得」を推測する）だと「取得中」に
+// 誤判定される。ロードの成否そのもので判定しなければならない。
+func TestDetailPaneZeroValueSuccessIsNotPending(t *testing.T) {
+	store := &fakeStore{list: taskList("")}
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	if err := inbox.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if err := inbox.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	m := New(inbox)
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = got.(Model)
+
+	it, ok := m.selected()
+	if !ok || it.Kind != domain.KindPR {
+		t.Fatalf("selected() = %+v, %v, want PR", it, ok)
+	}
+
+	got, _ = m.Update(detailLoadedMsg{id: it.ID, detail: domain.PRDetail{}})
+	m = got.(Model)
+
+	if content := m.View().Content; strings.Contains(content, "取得中") {
+		t.Errorf("全フィールドゼロの成功レスポンスが「取得中」と誤判定された: %q", content)
+	}
+}
+
+// space によるトグルでタスクが並び順を変える（完了タスクは末尾に回る）とき、
+// カーソルは同位置に留まり繰り上がった次のタスクを指す（ユーザー承認済みの挙動）。
+// 詳細ペインはその「今カーソルが指しているタスク」に追従しなければならない。
+func TestSpaceKeepsDetailPaneInSyncWithCursor(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] 一つ目\n- [ ] 二つ目\n")}
+	m := newTestModel(t, store)
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = got.(Model)
+
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace}))
+	m = got.(Model)
+
+	it, ok := m.selected()
+	if !ok || it.Title != "二つ目" {
+		t.Fatalf("トグル後のカーソル位置 = %+v, %v, want 二つ目", it, ok)
+	}
+	// m.View().Content には左の一覧も含まれ、そちらには常に両方のタイトルが
+	// 出るため、詳細ペイン単体（m.detail.View()）で確認する。
+	content := m.detail.View()
+	if !strings.Contains(content, "二つ目") {
+		t.Errorf("詳細ペインがカーソルに追従していない（二つ目が出ていない）: %q", content)
+	}
+	if strings.Contains(content, "一つ目") {
+		t.Errorf("詳細ペインに完了させた一つ目がまだ表示されている: %q", content)
+	}
+}
+
+// n → enter でタスクを追加したとき、未完了タスクは並び順で先頭に来る。
+// 元々カーソル0が完了済みタスクを指していた場合、追加後は新規タスクを
+// 指すことになるので、詳細ペインもそれに追従しなければならない。
+func TestAddKeepsDetailPaneInSyncWithCursor(t *testing.T) {
+	store := &fakeStore{list: taskList("- [x] 完了済み\n")}
+	m := newTestModel(t, store)
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = got.(Model)
+
+	it, ok := m.selected()
+	if !ok || it.Title != "完了済み" {
+		t.Fatalf("前提が崩れている: selected() = %+v, %v", it, ok)
+	}
+
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'n', Text: "n"}))
+	m = got.(Model)
+	for _, r := range "新規" {
+		got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: r, Text: string(r)}))
+		m = got.(Model)
+	}
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m = got.(Model)
+
+	it, ok = m.selected()
+	if !ok || it.Title != "新規" {
+		t.Fatalf("追加後のカーソル位置 = %+v, %v, want 新規", it, ok)
+	}
+	// m.View().Content には左の一覧も含まれ、そちらには常に両方のタイトルが
+	// 出るため、詳細ペイン単体（m.detail.View()）で確認する。
+	content := m.detail.View()
+	if !strings.Contains(content, "新規") {
+		t.Errorf("詳細ペインがカーソルに追従していない（新規が出ていない）: %q", content)
+	}
+	if strings.Contains(content, "完了済み") {
+		t.Errorf("詳細ペインに古い選択（完了済み）がまだ表示されている: %q", content)
 	}
 }
