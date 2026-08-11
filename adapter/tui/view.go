@@ -10,7 +10,7 @@ import (
 	"github.com/k-narusawa/tk/domain"
 )
 
-const help = " j/k:移動 space:完了 n:追加 enter:開く d:diff a/A:AI r:更新 q:終了"
+const help = " j/k:移動 space:完了 n:追加 enter:開く d:diff a/A:AI r:更新 R:再読込 q:終了"
 
 func (m Model) View() tea.View {
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder())

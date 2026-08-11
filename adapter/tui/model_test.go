@@ -14,12 +14,16 @@ import (
 )
 
 type fakeStore struct {
-	list    domain.TaskList
-	saved   []domain.TaskList
-	saveErr error
+	list      domain.TaskList
+	saved     []domain.TaskList
+	saveErr   error
+	loadCalls int
 }
 
-func (f *fakeStore) Load() (domain.TaskList, error) { return f.list, nil }
+func (f *fakeStore) Load() (domain.TaskList, error) {
+	f.loadCalls++
+	return f.list, nil
+}
 
 func (f *fakeStore) Save(t domain.TaskList) error {
 	if f.saveErr != nil {
@@ -790,6 +794,34 @@ func TestSuccessfulPRRefreshKeepsExecError(t *testing.T) {
 // 逆方向: 外部プロセスの成功は、無関係な保存失敗のエラーを消してはいけない。
 // 外部プロセスには「成功」以外に報告することがないので、成功時は errMsg に
 // 触れないのが正しい（prLoadedMsg が errIsPR でガードするのと同じ理由）。
+// R キーは Load() を経由してファイルを読み直す。外部エディタでの変更を
+// 取り込むための再読み込みキー。カーソルが PR を指す状態にして、返る cmd
+// （m.detailCmd()）が nil にならないケースで検証する。
+func TestShiftRReReadsThroughStore(t *testing.T) {
+	store := &fakeStore{list: taskList("")}
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	if err := inbox.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if err := inbox.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	m := New(inbox, "claude")
+	it, ok := m.selected()
+	if !ok || it.Kind != domain.KindPR {
+		t.Fatalf("前提が崩れている: selected() = %+v, %v, want PR", it, ok)
+	}
+	before := store.loadCalls
+
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'R', Text: "R"}))
+	if cmd == nil {
+		t.Fatal("R で cmd が nil")
+	}
+	if store.loadCalls != before+1 {
+		t.Errorf("Load() の呼び出し回数 = %d, want %d", store.loadCalls, before+1)
+	}
+}
+
 func TestSuccessfulExecKeepsSaveError(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n"), saveErr: errors.New("disk full")}
 	m := newTestModel(t, store)

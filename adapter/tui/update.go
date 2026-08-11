@@ -192,6 +192,16 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		return m, m.refreshCmd()
 
+	case "R":
+		if err := m.inbox.Load(); err != nil {
+			m.errMsg, m.errIsPR = err.Error(), false
+			return m, nil
+		}
+		m.errMsg, m.errIsPR = "", false
+		m.reload()
+		m.syncDetail()
+		return m, m.detailCmd()
+
 	case "enter":
 		it, ok := m.selected()
 		if !ok || it.Kind != domain.KindPR {
