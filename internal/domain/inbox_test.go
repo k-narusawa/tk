@@ -59,11 +59,11 @@ func TestSortInbox(t *testing.T) {
 	got := SortInbox(tasks, prs)
 
 	want := []ID{
-		TaskID(2),              // 未完了タスク（書かれた順）
-		TaskID(4),              //
-		PRID("a/review", 2),    // レビュー依頼された PR
-		PRID("a/mine", 1),      // 自分の PR
-		TaskID(3),              // 完了済みタスク
+		TaskID(2),           // 未完了タスク（書かれた順）
+		TaskID(4),           //
+		PRID("a/review", 2), // レビュー依頼された PR
+		PRID("a/mine", 1),   // 自分の PR
+		TaskID(3),           // 完了済みタスク
 	}
 	if len(got) != len(want) {
 		t.Fatalf("件数 = %d, want %d", len(got), len(want))
