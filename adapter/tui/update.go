@@ -6,6 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/k-narusawa/tk/adapter/ai"
+	"github.com/k-narusawa/tk/adapter/gh"
 	"github.com/k-narusawa/tk/domain"
 )
 
@@ -15,6 +17,20 @@ type detailLoadedMsg struct {
 	id     domain.ID
 	detail domain.PRDetail
 	err    error
+}
+
+type execDoneMsg struct{ err error }
+
+// aiExec は選択アイテムを AI CLI に渡す tea.Cmd を作る。tea.ExecProcess で
+// ターミナルを明け渡す必要があるので、ここで包む（ai パッケージは包まない）。
+func (m Model) aiExec(items []domain.Item) tea.Cmd {
+	c, err := ai.Command(m.aiCmd, items)
+	if err != nil {
+		return func() tea.Msg { return execDoneMsg{err: err} }
+	}
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return execDoneMsg{err: err}
+	})
 }
 
 func (m Model) Init() tea.Cmd { return tea.Batch(m.refreshCmd(), m.detailCmd()) }
@@ -78,6 +94,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.details[msg.id] = detailEntry{detail: msg.detail}
 		}
 		m.syncDetail()
+		return m, nil
+
+	case execDoneMsg:
+		if msg.err != nil {
+			m.errMsg, m.errIsPR = msg.err.Error(), false
+		} else {
+			m.errMsg, m.errIsPR = "", false
+		}
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -167,6 +191,34 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case "r":
 		return m, m.refreshCmd()
+
+	case "enter":
+		it, ok := m.selected()
+		if !ok || it.Kind != domain.KindPR {
+			return m, nil
+		}
+		c := gh.WebCommand(it.Repo, it.Number)
+		// ブラウザを開くだけなので TUI を畳まない
+		return m, func() tea.Msg { return execDoneMsg{err: c.Run()} }
+
+	case "d":
+		it, ok := m.selected()
+		if !ok || it.Kind != domain.KindPR {
+			return m, nil
+		}
+		return m, tea.ExecProcess(gh.DiffCommand(it.Repo, it.Number), func(err error) tea.Msg {
+			return execDoneMsg{err: err}
+		})
+
+	case "a":
+		it, ok := m.selected()
+		if !ok {
+			return m, nil
+		}
+		return m, m.aiExec([]domain.Item{it})
+
+	case "A":
+		return m, m.aiExec(m.items)
 	}
 	return m, nil
 }

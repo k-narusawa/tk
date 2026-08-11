@@ -17,6 +17,7 @@ type detailEntry struct {
 
 type Model struct {
 	inbox *usecase.Inbox
+	aiCmd string
 
 	items  []domain.Item
 	cursor int
@@ -32,7 +33,7 @@ type Model struct {
 	width, height int
 }
 
-func New(inbox *usecase.Inbox) Model {
+func New(inbox *usecase.Inbox, aiCmd string) Model {
 	ti := textinput.New()
 	ti.Prompt = "> "
 	ti.Placeholder = "新しいタスク"
@@ -40,6 +41,7 @@ func New(inbox *usecase.Inbox) Model {
 
 	return Model{
 		inbox:   inbox,
+		aiCmd:   aiCmd,
 		items:   inbox.Items(),
 		detail:  viewport.New(viewport.WithWidth(40), viewport.WithHeight(20)),
 		details: make(map[domain.ID]detailEntry),

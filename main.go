@@ -24,6 +24,13 @@ func tasksPath() (string, error) {
 	return filepath.Join(home, "tasks.md"), nil
 }
 
+func aiCommand() string {
+	if c := os.Getenv("TK_AI_CMD"); c != "" {
+		return c
+	}
+	return "claude"
+}
+
 func run() error {
 	path, err := tasksPath()
 	if err != nil {
@@ -37,7 +44,7 @@ func run() error {
 		return fmt.Errorf("%s を読めない: %w", path, err)
 	}
 
-	_, err = tea.NewProgram(tui.New(inbox)).Run()
+	_, err = tea.NewProgram(tui.New(inbox, aiCommand())).Run()
 	return err
 }
 

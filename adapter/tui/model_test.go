@@ -73,7 +73,7 @@ func newTestModel(t *testing.T, store *fakeStore) Model {
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	return New(inbox)
+	return New(inbox, "claude")
 }
 
 func TestWindowSizeRendersNonEmptyView(t *testing.T) {
@@ -229,7 +229,7 @@ func TestInitFetchesPRsAsync(t *testing.T) {
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	m := New(inbox)
+	m := New(inbox, "claude")
 
 	cmd := m.Init()
 	if cmd == nil {
@@ -267,7 +267,7 @@ func TestInitPRFailureKeepsTasksIntact(t *testing.T) {
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	m := New(inbox)
+	m := New(inbox, "claude")
 
 	msg := m.Init()()
 	loaded, ok := msg.(prLoadedMsg)
@@ -313,7 +313,7 @@ func TestSuccessfulPRRefreshKeepsSaveError(t *testing.T) {
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	m := New(inbox)
+	m := New(inbox, "claude")
 
 	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace}))
 	m = got.(Model)
@@ -373,7 +373,7 @@ func TestDetailCmdFetchesSelectedPRAndUpdatesView(t *testing.T) {
 	if err := inbox.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
-	m := New(inbox)
+	m := New(inbox, "claude")
 
 	it, ok := m.selected()
 	if !ok || it.Kind != domain.KindPR {
@@ -418,7 +418,7 @@ func TestDetailCmdNilWhenAlreadyFetched(t *testing.T) {
 	if err := inbox.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
-	m := New(inbox)
+	m := New(inbox, "claude")
 
 	it, ok := m.selected()
 	if !ok || it.Kind != domain.KindPR {
@@ -442,7 +442,7 @@ func TestDetailLoadedMsgErrorKeepsItemsIntact(t *testing.T) {
 	if err := inbox.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
-	m := New(inbox)
+	m := New(inbox, "claude")
 	wantItemCount := len(m.items)
 	for i, it := range m.items {
 		if it.Kind == domain.KindPR {
@@ -485,7 +485,7 @@ func TestDetailPaneThreeStates(t *testing.T) {
 	if err := inbox.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
-	m := New(inbox)
+	m := New(inbox, "claude")
 	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = got.(Model)
 
@@ -541,7 +541,7 @@ func TestDetailPaneZeroValueSuccessIsNotPending(t *testing.T) {
 	if err := inbox.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
-	m := New(inbox)
+	m := New(inbox, "claude")
 	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = got.(Model)
 
@@ -668,5 +668,121 @@ func TestLongErrorInFooterDoesNotOverflow(t *testing.T) {
 		if w := lipgloss.Width(ln); w > 60 {
 			t.Errorf("%d行目が端末幅を超えている（幅=%d, want <=60）: %q", i, w, ln)
 		}
+	}
+}
+
+// prModel は PR が先頭（review 側）に来る Model を作る。d/enter/a/A の
+// 外部プロセス起動キーを PR に対して確認するためのもの。
+func prModel(t *testing.T, aiCmd string) Model {
+	t.Helper()
+	store := &fakeStore{list: taskList("")}
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	if err := inbox.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if err := inbox.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	m := New(inbox, aiCmd)
+	it, ok := m.selected()
+	if !ok || it.Kind != domain.KindPR {
+		t.Fatalf("前提が崩れている: selected() = %+v, %v, want PR", it, ok)
+	}
+	return m
+}
+
+// d/enter が返す Cmd は tea.ExecProcess で実プロセスを起動するので、
+// ここでは cmd() を呼ばず nil かどうかだけを見る。
+func TestDKeyOnPRReturnsCmd(t *testing.T) {
+	m := prModel(t, "claude")
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'd', Text: "d"}))
+	if cmd == nil {
+		t.Fatal("PR で d を押しても cmd が nil")
+	}
+}
+
+func TestDKeyOnTaskReturnsNil(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'd', Text: "d"}))
+	if cmd != nil {
+		t.Error("タスクで d を押したのに cmd が nil でない")
+	}
+}
+
+func TestEnterKeyOnPRReturnsCmd(t *testing.T) {
+	m := prModel(t, "claude")
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if cmd == nil {
+		t.Fatal("PR で enter を押しても cmd が nil")
+	}
+}
+
+func TestEnterKeyOnTaskReturnsNil(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if cmd != nil {
+		t.Error("タスクで enter を押したのに cmd が nil でない")
+	}
+}
+
+func TestAKeyReturnsCmd(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'a', Text: "a"}))
+	if cmd == nil {
+		t.Fatal("a で cmd が nil")
+	}
+}
+
+// TK_AI_CMD が空でも、a は cmd を返してエラーを表に出さなければならない
+// （黙って何もしないのはダメ）。この cmd は実プロセスを起動する前に
+// エラーで返るので、唯一実行して確認できるケース。
+func TestAKeyWithEmptyAICmdSurfacesError(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+	m.aiCmd = ""
+
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'a', Text: "a"}))
+	if cmd == nil {
+		t.Fatal("aiCmd が空でも cmd が nil であってはならない（エラーを出せない）")
+	}
+
+	msg := cmd()
+	done, ok := msg.(execDoneMsg)
+	if !ok {
+		t.Fatalf("cmd() が返したのは %T, want execDoneMsg", msg)
+	}
+	if done.err == nil {
+		t.Error("aiCmd が空なのに execDoneMsg.err が nil")
+	}
+}
+
+func TestShiftAKeyReturnsCmd(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'A', Text: "A"}))
+	if cmd == nil {
+		t.Fatal("A で cmd が nil")
+	}
+}
+
+// 外部プロセスのエラーは errIsPR=false で記録され、PR 取得成功で
+// 消えてはいけない。保存失敗のエラーを取得成功が握り潰していた過去のバグ
+// (TestSuccessfulPRRefreshKeepsSaveError) と同じ形の回帰を防ぐ。
+func TestSuccessfulPRRefreshKeepsExecError(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+
+	got, _ := m.Update(execDoneMsg{err: errors.New("exit status 1")})
+	m = got.(Model)
+	if m.errMsg == "" {
+		t.Fatal("外部プロセスのエラーが errMsg に反映されていない")
+	}
+	if m.errIsPR {
+		t.Error("外部プロセスのエラーなのに errIsPR が true")
+	}
+	execErrMsg := m.errMsg
+
+	got, _ = m.Update(prLoadedMsg{err: nil})
+	m = got.(Model)
+
+	if m.errMsg != execErrMsg {
+		t.Errorf("PR 取得成功で外部プロセスのエラーが消えた: errMsg = %q, want %q", m.errMsg, execErrMsg)
 	}
 }
