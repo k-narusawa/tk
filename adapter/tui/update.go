@@ -207,9 +207,9 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if !ok || it.Kind != domain.KindPR {
 			return m, nil
 		}
-		c := gh.WebCommand(it.Repo, it.Number)
+		repo, number := it.Repo, it.Number
 		// ブラウザを開くだけなので TUI を畳まない
-		return m, func() tea.Msg { return execDoneMsg{err: c.Run()} }
+		return m, func() tea.Msg { return execDoneMsg{err: gh.RunWeb(repo, number)} }
 
 	case "d":
 		it, ok := m.selected()
