@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/k-narusawa/tk/domain"
 	"github.com/k-narusawa/tk/usecase"
@@ -619,5 +620,37 @@ func TestAddKeepsDetailPaneInSyncWithCursor(t *testing.T) {
 	}
 	if strings.Contains(content, "完了済み") {
 		t.Errorf("詳細ペインに古い選択（完了済み）がまだ表示されている: %q", content)
+	}
+}
+
+// 左右のペインの枠が同じ行で閉じること。ズレると端末で一目で分かる。
+// viewport が box の外寸（枠を含む）に合わせられていると、枠の内側に
+// 収まらず箱が膨らみ、左右で高さが変わる。
+func TestPanesHaveEqualHeight(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] 一つ目\n- [ ] 二つ目\n")})
+
+	for _, size := range [][2]int{{100, 30}, {80, 24}, {120, 40}, {60, 15}} {
+		updated, _ := m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		mm := updated.(Model)
+		lines := strings.Split(mm.View().Content, "\n")
+
+		leftClose, rightClose := -1, -1
+		// 最終行はフッター（help/エラー文言）。ペインの箱とは無関係な
+		// 固定文言で、狭い端末では別途溢れうる（既知の別問題、ここでは対象外）。
+		for i, ln := range lines[:len(lines)-1] {
+			if leftClose < 0 && strings.HasPrefix(ln, "╰") {
+				leftClose = i
+			}
+			if strings.HasSuffix(strings.TrimRight(ln, " "), "╯") {
+				rightClose = i
+			}
+			if w := lipgloss.Width(ln); w > size[0] {
+				t.Errorf("size %v: %d行目が端末幅を超えている（幅=%d, want <=%d）: %q", size, i, w, size[0], ln)
+			}
+		}
+		if leftClose != rightClose {
+			t.Errorf("size %v: 左右の枠の高さが違う（左=%d行目, 右=%d行目, 差=%d行）",
+				size, leftClose, rightClose, rightClose-leftClose)
+		}
 	}
 }

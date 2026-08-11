@@ -49,8 +49,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		left := m.width * 40 / 100
-		m.detail.SetWidth(max(1, m.width-left-4))
-		m.detail.SetHeight(max(1, m.height-4))
+		right := m.width - left - 4
+		inner := max(1, m.height-4)
+		// 枠線の内側に収める。box.Width/Height は枠を含む寸法なので、
+		// viewport には -2 した値を渡さないと溢れて箱が膨らむ。
+		m.detail.SetWidth(max(1, right-2))
+		m.detail.SetHeight(max(1, inner-2))
 		m.input.SetWidth(max(1, m.width-4))
 		m.syncDetail()
 		return m, nil
