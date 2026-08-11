@@ -652,3 +652,21 @@ func TestPanesHaveEqualHeight(t *testing.T) {
 		}
 	}
 }
+
+// gh の 401 のような長いエラー（93桁前後、JSON を含む）がフッターに出ても
+// 端末幅を超えないこと。help の固定文言よりこちらの方が実際に長くなる。
+func TestLongErrorInFooterDoesNotOverflow(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+	longErr := errors.New(`gh: HTTP 401: Bad credentials (https://api.github.com/graphql) {"message":"Bad credentials","documentation_url":"https://docs.github.com/graphql"}`)
+
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: 15})
+	m = got.(Model)
+	got, _ = m.Update(prLoadedMsg{err: longErr})
+	m = got.(Model)
+
+	for i, ln := range strings.Split(m.View().Content, "\n") {
+		if w := lipgloss.Width(ln); w > 60 {
+			t.Errorf("%d行目が端末幅を超えている（幅=%d, want <=60）: %q", i, w, ln)
+		}
+	}
+}
