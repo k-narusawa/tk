@@ -12,7 +12,7 @@
 | `main.go` は bubbletea を直接 import する | `main.go` は配線層であり全層を知ってよい。`adapter/tui` に `Run()` ラッパーは作らない。lipgloss と bubbles は `adapter/tui` の外に出さない |
 | タスク完了後もカーソルは同じ位置に留まる | 完了したタスクは末尾へ動き、次の未完了タスクが繰り上がってカーソル下に来る。lazygit / vim 的で、連続して完了させやすい |
 | 外部変更を検知したら保存を拒否する（自動マージしない） | `ID` が `task:<行番号>` なので、再読み込みで行がずれると同じ ID が別のタスクを指し、**間違ったタスクを完了にする**危険がある |
-| `ai.Command` の一時ファイルは子プロセス終了後も消さない | 子プロセスが読むため成功時に消せない。OS の temp ディレクトリが回収する |
+| ~~`ai.Command` の一時ファイルは子プロセス終了後も消さない~~ | **見直した。** 当初は「子プロセスが読むため成功時に消せない。OS の temp ディレクトリが回収する」として受け入れたが、タスク名が機密になりうるため個人情報の管理の観点で対応することにした → #12 |
 | 取得に失敗した PR 詳細は自動再試行しない | 永続的に失敗する PR でカーソルが通るたびに `gh` を叩かないため |
 | PR 詳細のキャッシュは無期限 | 開いている PR は数十件程度。このアプリの寿命では問題にならない |
 
@@ -55,3 +55,35 @@
 **寸法計算は実行して数える。** lipgloss の `Width`/`Height` は枠線を含む寸法で、かつ最小値であって上限ではない。どちらも実測しないと分からず、左右ペインのズレと端末溢れの2つの欠陥を生んだ。レイアウトのテストは「2つを互いに比べる」ではなく「端末という外側の制約に収まる」を主張する形にすると、この根が塞がる。
 
 **境界での入力検証は到達可能性で判断しない。** `parsePRs` は `gh` の出力契約の唯一の入口。「今の `gh` は埋めてくれる」は検証ではなく期待。逆に型の不変条件で守られている内部にはガードを足さない（`Toggle` の `FindStringSubmatchIndex` など）。
+
+## GitHub issue との対応
+
+このファイルの未対応項目は issue にしてある。issue が一次情報で、このファイルは経緯と判断理由の記録。
+
+| issue | 内容 |
+|---|---|
+| [#2](https://github.com/k-narusawa/tk/issues/2) | `Save` のエラー経路にテストがない |
+| [#3](https://github.com/k-narusawa/tk/issues/3) | テストの穴をまとめて埋める |
+| [#4](https://github.com/k-narusawa/tk/issues/4) | `wrapRunError` が `context.Canceled` でも「タイムアウト」と表示する |
+| [#5](https://github.com/k-narusawa/tk/issues/5) | `r` 連打で `prLoadedMsg` の到着順が保証されない |
+| [#6](https://github.com/k-narusawa/tk/issues/6) | `splitTag` がタイトル内の `" @"` をタグと誤分類する |
+| [#7](https://github.com/k-narusawa/tk/issues/7) | CRLF のファイルに `Add` すると LF の行が混ざる |
+| [#8](https://github.com/k-narusawa/tk/issues/8) | 壊れた symlink と `os.Stat` のエラー握り潰し |
+| [#9](https://github.com/k-narusawa/tk/issues/9) | `a` / `A` で起動する AI CLI の作業ディレクトリ |
+| [#10](https://github.com/k-narusawa/tk/issues/10) | Jira 連携 |
+| [#11](https://github.com/k-narusawa/tk/issues/11) | LICENSE を追加する |
+| [#12](https://github.com/k-narusawa/tk/issues/12) | AI CLI の一時ファイルが削除されない |
+
+## データの扱い（実装を検証した結果）
+
+| 項目 | 実態 |
+|---|---|
+| ネットワーク通信コード | 皆無。`net/http` を import していない |
+| 認証情報 | 一切扱わない。トークンは `gh` が OS のキーチェーンに保持する |
+| GitHub アクセス | すべて `gh` サブプロセス経由 |
+| ログ・テレメトリ | なし |
+| `tasks.md` | ローカルのみ。権限も維持。外部に送信しない |
+| PR のデータ | メモリ上のみ。ディスクに書かない |
+| **端末の外へ出る唯一の経路** | **`a` / `A`。タスク名と PR のタイトル・URL が `$TK_AI_CMD` に渡る（既定は `claude` なので Anthropic に送信される）** |
+
+`a` / `A` を押すと何が送られるかはユーザーが認識しておく必要がある。タスク名に顧客名や機密案件が入っていればそれも送られる。
