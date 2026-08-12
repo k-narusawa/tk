@@ -370,17 +370,17 @@ func TestTasksAndPRsAreSeparate(t *testing.T) {
 		t.Errorf("Tasks() の先頭が完了済み: %+v", tasks[0])
 	}
 
-	prs_items := in.PRs()
-	if len(prs_items) != 2 {
-		t.Fatalf("PRs() = %d 件, want 2", len(prs_items))
+	prItems := in.PRs()
+	if len(prItems) != 2 {
+		t.Fatalf("PRs() = %d 件, want 2", len(prItems))
 	}
-	for _, it := range prs_items {
+	for _, it := range prItems {
 		if it.Kind != domain.KindPR {
 			t.Errorf("PRs() にタスクが混ざっている: %+v", it)
 		}
 	}
-	if prs_items[0].Role != domain.RoleReview {
-		t.Errorf("PRs() の先頭が review でない: %+v", prs_items[0])
+	if prItems[0].Role != domain.RoleReview {
+		t.Errorf("PRs() の先頭が review でない: %+v", prItems[0])
 	}
 }
 
