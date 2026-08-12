@@ -1,6 +1,6 @@
 # tk
 
-タスクと GitHub PR を1つのインボックスにまとめるターミナル UI。
+タスクと GitHub PR をタブで切り替えて見るターミナル UI。
 
 タスクは `~/tasks.md`（Markdown のチェックボックス）に保存する。Neovim で直接編集してもよい。GitHub へのアクセスは `gh` CLI をサブプロセスで叩く。認証情報は tk 自身が一切扱わない。
 
@@ -17,13 +17,15 @@ tk
 
 | キー | 動作 |
 |---|---|
+| `[` / `]` | タスクタブ / GitHub タブへ切り替え |
 | `j` / `k` | カーソル移動 |
-| `space` | タスクの完了トグル（即 `tasks.md` へ書き戻し） |
-| `n` | 新規タスク追加 |
-| `enter` | PR をブラウザで開く |
-| `d` | `gh pr diff` を表示 |
-| `a` / `A` | 選択アイテム / インボックス全体を AI CLI に渡す |
-| `r` / `R` | PR 再取得 / `tasks.md` 再読み込み |
+| `space` | タスクの完了トグル（即 `tasks.md` へ書き戻し。タスクタブのみ） |
+| `n` | 新規タスク追加（タスクタブのみ） |
+| `enter` | PR をブラウザで開く（GitHub タブのみ） |
+| `d` | `gh pr diff` を表示（GitHub タブのみ） |
+| `a` / `A` | 選択アイテム / 現在のタブ全体を AI CLI に渡す |
+| `r` | 現在のタブを更新（タスクタブなら `tasks.md` 再読み込み、GitHub タブなら PR 再取得） |
+| `R` | どちらのタブにいても `tasks.md` を再読み込み |
 | `ctrl+d` / `ctrl+u` | 右ペインのスクロール |
 | `q` | 終了 |
 
@@ -32,7 +34,7 @@ tk
 | `TK_TASKS_FILE` | `~/tasks.md` | タスクの保存先 |
 | `TK_AI_CMD` | `claude` | `a` / `A` で起動する AI CLI |
 
-`a` / `A` はタスク名と PR 情報を `$TK_AI_CMD` に渡す。tk が端末の外へデータを出す唯一の経路なので、機密を含むタスク名がある場合は注意すること。
+`a` は選択中のアイテム、`A` は現在のタブに出ているアイテム全部を `$TK_AI_CMD` に渡す。tk が端末の外へデータを出す唯一の経路なので、機密を含むタスク名がある場合は注意すること。
 
 ## 開発
 
@@ -73,10 +75,12 @@ TK_TASKS_FILE=/tmp/t.md go run .   # 自分の tasks.md を汚さずに試す
 - **`tasks.md` の非チェックボックス行（見出し・自由記述）は原文のまま保持する。** `Parse` → `Render` がバイト一致することを domain のテストで守っている。
 - **保存前に外部変更を検知したら上書きせずエラーを返す。** `ID` が行番号ベースなので、ずれると別のタスクを完了にしてしまう。自動マージはしない。
 - **レイアウト計算は実測する。** lipgloss の `Width`/`Height` は枠線込みかつ最小値であって上限ではない。「端末の幅・高さに収まる」形でテストを書く。
+- **画面最上部のタブ行を高さ計算に入れる。** 本文の高さは `m.height-5`。`view.go` の `View` と `update.go` の `WindowSizeMsg` の両方に同じ値があるので、片方だけ直すと右ペインが枠から溢れる。
 
 ### ドキュメント
 
 - [docs/superpowers/specs/2026-08-11-tk-design.md](docs/superpowers/specs/2026-08-11-tk-design.md) — 設計。スコープ外にしたものと、その理由
+- [docs/superpowers/specs/2026-08-12-tk-tabs-design.md](docs/superpowers/specs/2026-08-12-tk-tabs-design.md) — タスク / GitHub のタブ分割
 - [docs/known-issues.md](docs/known-issues.md) — 既知の課題、設計判断の記録、GitHub issue との対応表
 
 「なぜそうしなかったか」は known-issues に書いてある。設計を変えたくなったらまずそこを読むこと。
