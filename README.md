@@ -42,8 +42,8 @@ Go のバージョンは `mise.toml` で固定している。`mise install` で�
 go test ./...          # 全テスト
 go test -race ./...    # 競合検出（TUI と Refresh の並行処理があるので PR 前に必ず）
 go vet ./...
-go build -o tk . && ./tk   # 手元で起動確認
-TK_TASKS_FILE=/tmp/t.md ./tk   # 自分の tasks.md を汚さずに試す
+mise run dev            # 手元で起動確認（サブディレクトリからでも可）
+TK_TASKS_FILE=/tmp/t.md go run .   # 自分の tasks.md を汚さずに試す
 ```
 
 テストは標準の `testing` のみ。フレームワークは足さない。

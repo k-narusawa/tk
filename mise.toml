@@ -1,2 +1,6 @@
 [tools]
 go = "1.26.5"
+
+[tasks.dev]
+description = "開発中の tk を起動する"
+run = "go run ."
