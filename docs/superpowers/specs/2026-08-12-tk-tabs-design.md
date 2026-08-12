@@ -60,7 +60,7 @@ func SortPRs(prs []Item) []Item      // review → mine
 `Model` に3つ足す。
 
 ```go
-tab         tab   // tabTask | tabGitHub
+tab         tabID // tabTask | tabGitHub
 otherCursor int   // 非表示タブのカーソル位置
 prLoaded    bool  // Refresh が1度でも完了したか
 ```
