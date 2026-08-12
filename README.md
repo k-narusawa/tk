@@ -7,11 +7,13 @@
 ## 使う
 
 ```sh
+mise use -g ubi:k-narusawa/tk    # ビルド済みバイナリ（Go 不要）
+mise use -g go:github.com/k-narusawa/tk  # ソースからビルド（Go 必要）
 go install github.com/k-narusawa/tk@latest
 tk
 ```
 
-前提: Go 1.26 以降、`gh` CLI がログイン済み（PR 機能を使う場合のみ）。
+前提: `gh` CLI がログイン済み（PR 機能を使う場合のみ）。ソースからビルドする場合は Go 1.26 以降。
 
 | キー | 動作 |
 |---|---|
