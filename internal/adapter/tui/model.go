@@ -40,6 +40,8 @@ type Model struct {
 	errMsg  string
 	errIsPR bool // errMsg が PR 取得由来かどうか
 
+	prLoaded bool // Refresh が1度でも完了したか（成否は問わない）
+
 	width, height int
 }
 

@@ -1151,3 +1151,82 @@ func TestNKeyStillWorksOnTaskTab(t *testing.T) {
 		t.Error("タスクタブの n が cmd を返さない（Focus されていない）")
 	}
 }
+// 起動直後の GitHub タブは gh の取得待ちで必ず空になる。何も出さないと
+// 故障と区別できないので、取得中と0件を書き分ける。
+func TestGitHubTabEmptyStates(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	inbox := usecase.NewInbox(store, &fakePRs{}, nil)
+	if err := inbox.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	m := New(inbox, "claude")
+
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = got.(Model)
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: ']', Text: "]"}))
+	m = got.(Model)
+
+	if !strings.Contains(m.View().Content, "取得中") {
+		t.Errorf("取得前の GitHub タブに取得中の表示が無い:\n%s", m.View().Content)
+	}
+
+	got, _ = m.Update(prLoadedMsg{err: nil})
+	m = got.(Model)
+
+	content := m.View().Content
+	if strings.Contains(content, "取得中") {
+		t.Errorf("取得完了後も取得中のまま:\n%s", content)
+	}
+	if !strings.Contains(content, "PR なし") {
+		t.Errorf("0件の表示が無い:\n%s", content)
+	}
+}
+
+// 取得が失敗した場合も「取得中」で止めない。フッタにエラーが出るので、
+// 一覧は「なし」で矛盾しない。
+func TestGitHubTabEmptyAfterFetchError(t *testing.T) {
+	store := &fakeStore{list: taskList("")}
+	inbox := usecase.NewInbox(store, &fakePRs{err: errors.New("gh: not logged in")}, nil)
+	if err := inbox.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	m := New(inbox, "claude")
+
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = got.(Model)
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: ']', Text: "]"}))
+	m = got.(Model)
+	got, _ = m.Update(prLoadedMsg{err: errors.New("gh: not logged in")})
+	m = got.(Model)
+
+	if strings.Contains(m.View().Content, "取得中") {
+		t.Errorf("取得失敗後も取得中のまま:\n%s", m.View().Content)
+	}
+}
+
+// タスクタブが空のときは何も出さない。ユーザーが知っている状態であり、
+// 非同期の取得も挟まらない。
+func TestTaskTabEmptyShowsNothing(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("")})
+
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = got.(Model)
+
+	content := m.View().Content
+	if strings.Contains(content, "取得中") || strings.Contains(content, "なし") {
+		t.Errorf("タスクタブの空表示に文言が出ている:\n%s", content)
+	}
+}
+
+// PR が1件でもあれば状態表示は出ない。
+func TestGitHubTabWithPRsShowsNoPlaceholder(t *testing.T) {
+	m := prModel(t, "claude")
+
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = got.(Model)
+
+	content := m.View().Content
+	if strings.Contains(content, "取得中") || strings.Contains(content, "PR なし") {
+		t.Errorf("PR があるのに状態表示が出ている:\n%s", content)
+	}
+}

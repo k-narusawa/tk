@@ -67,6 +67,9 @@ func (m Model) View() tea.View {
 // 伸び、フッタが画面外に押し出される（保存失敗などのエラーが見えなくなる）。
 // カーソルが窓の下端を超えたら追従してスクロールする。
 func (m Model) listView(rows int) string {
+	if len(m.items) == 0 {
+		return m.emptyLabel()
+	}
 	rows = max(1, rows)
 	start := 0
 	if m.cursor >= rows {
@@ -84,6 +87,19 @@ func (m Model) listView(rows int) string {
 		b.WriteString(cursor + itemLabel(it) + "\n")
 	}
 	return b.String()
+}
+
+// emptyLabel は GitHub タブでだけ状態を出す。起動直後は gh の取得が
+// 終わるまで必ず空になるので、無表示だと故障と区別できない。
+// タスクタブの空はユーザーが知っている状態なので何も出さない。
+func (m Model) emptyLabel() string {
+	if m.tab != tabGitHub {
+		return ""
+	}
+	if !m.prLoaded {
+		return "（PR を取得中…）\n"
+	}
+	return "（PR なし）\n"
 }
 
 func itemLabel(it domain.Item) string {

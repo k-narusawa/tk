@@ -76,6 +76,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case prLoadedMsg:
+		m.prLoaded = true
 		if msg.err != nil {
 			m.errMsg, m.errIsPR = msg.err.Error(), true
 		} else if m.errIsPR {
