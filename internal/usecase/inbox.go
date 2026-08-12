@@ -50,6 +50,18 @@ func (i *Inbox) Items() []domain.Item {
 	return i.items()
 }
 
+func (i *Inbox) Tasks() []domain.Item {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return domain.SortTasks(i.tasks.Items())
+}
+
+func (i *Inbox) PRs() []domain.Item {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return domain.SortPRs(i.prItems)
+}
+
 func (i *Inbox) Find(id domain.ID) (domain.Item, bool) {
 	i.mu.Lock()
 	defer i.mu.Unlock()

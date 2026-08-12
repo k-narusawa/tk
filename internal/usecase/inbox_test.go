@@ -355,3 +355,62 @@ func TestConcurrentAccess(t *testing.T) {
 		t.Errorf("concurrent access error: %v", err)
 	}
 }
+
+// タブごとに独立した一覧が取れること。Tasks() に PR が、PRs() に
+// タスクが混ざってはいけない。
+func TestTasksAndPRsAreSeparate(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n- [x] 済んだこと\n")}
+	prs := &fakePRs{byRole: map[domain.Role][]domain.Item{
+		domain.RoleReview: {pr("a/x", 1, domain.RoleReview)},
+		domain.RoleMine:   {pr("a/y", 2, domain.RoleMine)},
+	}}
+	in := NewInbox(store, prs, nil)
+	if err := in.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if err := in.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+
+	tasks := in.Tasks()
+	if len(tasks) != 2 {
+		t.Fatalf("Tasks() = %d 件, want 2", len(tasks))
+	}
+	for _, it := range tasks {
+		if it.Kind != domain.KindTask {
+			t.Errorf("Tasks() に PR が混ざっている: %+v", it)
+		}
+	}
+	if tasks[0].Done {
+		t.Errorf("Tasks() の先頭が完了済み: %+v", tasks[0])
+	}
+
+	prs_items := in.PRs()
+	if len(prs_items) != 2 {
+		t.Fatalf("PRs() = %d 件, want 2", len(prs_items))
+	}
+	for _, it := range prs_items {
+		if it.Kind != domain.KindPR {
+			t.Errorf("PRs() にタスクが混ざっている: %+v", it)
+		}
+	}
+	if prs_items[0].Role != domain.RoleReview {
+		t.Errorf("PRs() の先頭が review でない: %+v", prs_items[0])
+	}
+}
+
+// Refresh 前は PRs() が空でも Tasks() は取れること。
+func TestTasksBeforeRefresh(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	in := NewInbox(store, nil, nil)
+	if err := in.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if len(in.Tasks()) != 1 {
+		t.Errorf("Tasks() = %d 件, want 1", len(in.Tasks()))
+	}
+	if len(in.PRs()) != 0 {
+		t.Errorf("Refresh 前の PRs() = %d 件, want 0", len(in.PRs()))
+	}
+}
