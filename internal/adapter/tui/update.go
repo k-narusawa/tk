@@ -152,6 +152,14 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 
+	case "[":
+		m.switchTab(tabTask)
+		return m, m.detailCmd()
+
+	case "]":
+		m.switchTab(tabGitHub)
+		return m, m.detailCmd()
+
 	case "j", "down":
 		if m.cursor < len(m.items)-1 {
 			m.cursor++

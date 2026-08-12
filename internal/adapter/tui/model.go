@@ -15,12 +15,22 @@ type detailEntry struct {
 	err    string
 }
 
+type tabID int
+
+const (
+	tabTask tabID = iota
+	tabGitHub
+)
+
 type Model struct {
 	inbox *usecase.Inbox
 	aiCmd string
 
 	items  []domain.Item
 	cursor int
+
+	tab         tabID
+	otherCursor int // 表示していない側のタブのカーソル位置
 
 	detail  viewport.Model
 	details map[domain.ID]detailEntry
@@ -42,7 +52,7 @@ func New(inbox *usecase.Inbox, aiCmd string) Model {
 	return Model{
 		inbox:   inbox,
 		aiCmd:   aiCmd,
-		items:   inbox.Items(),
+		items:   inbox.Tasks(),
 		detail:  viewport.New(viewport.WithWidth(40), viewport.WithHeight(20)),
 		details: make(map[domain.ID]detailEntry),
 		input:   ti,
@@ -56,10 +66,24 @@ func (m Model) selected() (domain.Item, bool) {
 	return m.items[m.cursor], true
 }
 
-// reload は usecase から一覧を取り直し、カーソルを範囲内に収める。
+// reload は現在のタブの一覧を取り直し、カーソルを範囲内に収める。
 func (m *Model) reload() {
-	m.items = m.inbox.Items()
+	if m.tab == tabGitHub {
+		m.items = m.inbox.PRs()
+	} else {
+		m.items = m.inbox.Tasks()
+	}
 	if m.cursor >= len(m.items) {
 		m.cursor = max(0, len(m.items)-1)
 	}
+}
+
+// switchTab はカーソルを退避してタブを入れ替える。
+func (m *Model) switchTab(t tabID) {
+	if m.tab == t {
+		return
+	}
+	m.tab, m.cursor, m.otherCursor = t, m.otherCursor, m.cursor
+	m.reload()
+	m.syncDetail()
 }

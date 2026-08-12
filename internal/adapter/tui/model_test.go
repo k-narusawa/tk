@@ -253,6 +253,9 @@ func TestInitFetchesPRsAsync(t *testing.T) {
 	got, _ := m.Update(loaded)
 	m = got.(Model)
 
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: ']', Text: "]"}))
+	m = got.(Model)
+
 	found := false
 	for _, it := range m.items {
 		if it.ID == domain.PRID("a/x", 1) {
@@ -371,14 +374,7 @@ func TestDetailCmdNilForTaskItem(t *testing.T) {
 func TestDetailCmdFetchesSelectedPRAndUpdatesView(t *testing.T) {
 	store := &fakeStore{list: taskList("")}
 	details := &fakeDetails{detail: domain.PRDetail{CI: "passing", Additions: 10, Deletions: 2, ChangedFiles: 3}}
-	inbox := usecase.NewInbox(store, prPair(), details)
-	if err := inbox.Load(); err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if err := inbox.Refresh(context.Background()); err != nil {
-		t.Fatalf("Refresh() error = %v", err)
-	}
-	m := New(inbox, "claude")
+	m := prModelWith(t, store, details, "claude")
 
 	it, ok := m.selected()
 	if !ok || it.Kind != domain.KindPR {
@@ -416,14 +412,7 @@ func TestDetailCmdFetchesSelectedPRAndUpdatesView(t *testing.T) {
 // カーソルを動かすたびに gh を叩き直さないための、いちばん重要な保証。
 func TestDetailCmdNilWhenAlreadyFetched(t *testing.T) {
 	store := &fakeStore{list: taskList("")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
-	if err := inbox.Load(); err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if err := inbox.Refresh(context.Background()); err != nil {
-		t.Fatalf("Refresh() error = %v", err)
-	}
-	m := New(inbox, "claude")
+	m := prModelWith(t, store, &fakeDetails{}, "claude")
 
 	it, ok := m.selected()
 	if !ok || it.Kind != domain.KindPR {
@@ -440,14 +429,7 @@ func TestDetailCmdNilWhenAlreadyFetched(t *testing.T) {
 func TestDetailLoadedMsgErrorKeepsItemsIntact(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
 	wantErr := errors.New("gh: rate limited")
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{err: wantErr})
-	if err := inbox.Load(); err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if err := inbox.Refresh(context.Background()); err != nil {
-		t.Fatalf("Refresh() error = %v", err)
-	}
-	m := New(inbox, "claude")
+	m := prModelWith(t, store, &fakeDetails{err: wantErr}, "claude")
 	wantItemCount := len(m.items)
 	for i, it := range m.items {
 		if it.Kind == domain.KindPR {
@@ -483,14 +465,7 @@ func TestDetailLoadedMsgErrorKeepsItemsIntact(t *testing.T) {
 // 取得失敗時に「取得中」のまま固まってはいけない。
 func TestDetailPaneThreeStates(t *testing.T) {
 	store := &fakeStore{list: taskList("")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
-	if err := inbox.Load(); err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if err := inbox.Refresh(context.Background()); err != nil {
-		t.Fatalf("Refresh() error = %v", err)
-	}
-	m := New(inbox, "claude")
+	m := prModelWith(t, store, &fakeDetails{}, "claude")
 	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = got.(Model)
 
@@ -539,14 +514,7 @@ func TestDetailPaneThreeStates(t *testing.T) {
 // 誤判定される。ロードの成否そのもので判定しなければならない。
 func TestDetailPaneZeroValueSuccessIsNotPending(t *testing.T) {
 	store := &fakeStore{list: taskList("")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
-	if err := inbox.Load(); err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if err := inbox.Refresh(context.Background()); err != nil {
-		t.Fatalf("Refresh() error = %v", err)
-	}
-	m := New(inbox, "claude")
+	m := prModelWith(t, store, &fakeDetails{}, "claude")
 	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = got.(Model)
 
@@ -719,12 +687,12 @@ func TestLongErrorInFooterDoesNotOverflow(t *testing.T) {
 	}
 }
 
-// prModel は PR が先頭（review 側）に来る Model を作る。d/enter/a/A の
-// 外部プロセス起動キーを PR に対して確認するためのもの。
-func prModel(t *testing.T, aiCmd string) Model {
+// prModelWith は PR を取得済みで GitHub タブを開いた Model を作る。
+// タブ分割後は New() がタスクタブから始まるので、PR を選択した状態を
+// 作るには `]` を通す必要がある。
+func prModelWith(t *testing.T, store *fakeStore, details *fakeDetails, aiCmd string) Model {
 	t.Helper()
-	store := &fakeStore{list: taskList("")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	inbox := usecase.NewInbox(store, prPair(), details)
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -732,11 +700,218 @@ func prModel(t *testing.T, aiCmd string) Model {
 		t.Fatalf("Refresh() error = %v", err)
 	}
 	m := New(inbox, aiCmd)
+	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: ']', Text: "]"}))
+	m = got.(Model)
 	it, ok := m.selected()
 	if !ok || it.Kind != domain.KindPR {
 		t.Fatalf("前提が崩れている: selected() = %+v, %v, want PR", it, ok)
 	}
 	return m
+}
+
+func prModel(t *testing.T, aiCmd string) Model {
+	t.Helper()
+	return prModelWith(t, &fakeStore{list: taskList("")}, &fakeDetails{}, aiCmd)
+}
+
+func TestBracketKeysSwitchTab(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	if err := inbox.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if err := inbox.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	m := New(inbox, "claude")
+
+	if m.tab != tabTask {
+		t.Fatalf("起動時の tab = %d, want tabTask", m.tab)
+	}
+	for _, it := range m.items {
+		if it.Kind != domain.KindTask {
+			t.Errorf("タスクタブに PR が出ている: %+v", it)
+		}
+	}
+
+	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: ']', Text: "]"}))
+	m = got.(Model)
+	if m.tab != tabGitHub {
+		t.Fatalf("] の後の tab = %d, want tabGitHub", m.tab)
+	}
+	if len(m.items) != 2 {
+		t.Fatalf("GitHub タブの件数 = %d, want 2", len(m.items))
+	}
+	for _, it := range m.items {
+		if it.Kind != domain.KindPR {
+			t.Errorf("GitHub タブにタスクが出ている: %+v", it)
+		}
+	}
+
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: '[', Text: "["}))
+	m = got.(Model)
+	if m.tab != tabTask {
+		t.Fatalf("[ の後の tab = %d, want tabTask", m.tab)
+	}
+	if len(m.items) != 1 {
+		t.Fatalf("タスクタブの件数 = %d, want 1", len(m.items))
+	}
+}
+
+// [ / ] は絶対移動。現在のタブと同じキーを押しても何も起きない。
+func TestBracketKeyOnSameTabIsNoop(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] 一\n- [ ] 二\n")})
+
+	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+	m = got.(Model)
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: '[', Text: "["}))
+	m = got.(Model)
+
+	if m.tab != tabTask {
+		t.Errorf("タスクタブで [ を押して tab = %d, want tabTask", m.tab)
+	}
+	if m.cursor != 1 {
+		t.Errorf("同じタブへの [ でカーソルが動いた: cursor = %d, want 1", m.cursor)
+	}
+}
+
+// カーソル位置はタブごとに保たれる。往復しても元の行に戻ること。
+func TestCursorIsPerTab(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] 一\n- [ ] 二\n- [ ] 三\n")}
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	if err := inbox.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if err := inbox.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	m := New(inbox, "claude")
+
+	// タスクタブで3行目へ
+	for i := 0; i < 2; i++ {
+		got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+		m = got.(Model)
+	}
+	if m.cursor != 2 {
+		t.Fatalf("タスクタブの cursor = %d, want 2", m.cursor)
+	}
+
+	// GitHub タブへ移ると先頭から始まる
+	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: ']', Text: "]"}))
+	m = got.(Model)
+	if m.cursor != 0 {
+		t.Fatalf("GitHub タブ初回の cursor = %d, want 0", m.cursor)
+	}
+
+	// GitHub タブで2行目へ
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+	m = got.(Model)
+	if m.cursor != 1 {
+		t.Fatalf("GitHub タブの cursor = %d, want 1", m.cursor)
+	}
+
+	// タスクタブに戻ると3行目
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: '[', Text: "["}))
+	m = got.(Model)
+	if m.cursor != 2 {
+		t.Errorf("タスクタブに戻った cursor = %d, want 2", m.cursor)
+	}
+
+	// もう一度 GitHub タブへ行くと2行目
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: ']', Text: "]"}))
+	m = got.(Model)
+	if m.cursor != 1 {
+		t.Errorf("GitHub タブに戻った cursor = %d, want 1", m.cursor)
+	}
+}
+
+// 保持していたカーソル位置が、戻ってきたときに件数を超えていても
+// 落ちないこと（PR が減る、タスクが消えるのは普通に起きる）。
+func TestPerTabCursorClampsWhenListShrinks(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] 一\n- [ ] 二\n- [ ] 三\n")}
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	if err := inbox.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if err := inbox.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	m := New(inbox, "claude")
+
+	for i := 0; i < 2; i++ {
+		got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+		m = got.(Model)
+	}
+	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: ']', Text: "]"}))
+	m = got.(Model)
+
+	// 裏でタスクが1件に減る
+	store.list = taskList("- [ ] 一\n")
+	if err := m.inbox.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: '[', Text: "["}))
+	m = got.(Model)
+	if m.cursor != 0 {
+		t.Errorf("縮んだ一覧に戻った cursor = %d, want 0", m.cursor)
+	}
+	if _, ok := m.selected(); !ok {
+		t.Error("selected() が false、カーソルが範囲外のまま")
+	}
+}
+
+// A に渡るのは現在のタブのアイテムだけ。aiExec は m.items をそのまま
+// 渡すので、m.items が現タブに閉じていることで担保する。
+func TestShiftAScopeIsCurrentTab(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	m := prModelWith(t, store, &fakeDetails{}, "claude")
+
+	for _, it := range m.items {
+		if it.Kind != domain.KindPR {
+			t.Errorf("GitHub タブの m.items にタスクが混ざっている: %+v", it)
+		}
+	}
+
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'A', Text: "A"}))
+	if cmd == nil {
+		t.Error("GitHub タブの A が cmd を返さない")
+	}
+}
+
+// タブを切り替えたら右ペインが新しい選択に追従すること。
+// 追従しないと、タスクの詳細を出したまま PR 一覧を見ることになる。
+func TestTabSwitchKeepsDetailPaneInSync(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	if err := inbox.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if err := inbox.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	m := New(inbox, "claude")
+
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = got.(Model)
+	if !strings.Contains(m.detail.View(), "やること") {
+		t.Fatalf("タスクタブの右ペインにタスクが出ていない: %q", m.detail.View())
+	}
+
+	got, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: ']', Text: "]"}))
+	m = got.(Model)
+	if !strings.Contains(m.detail.View(), "fix") {
+		t.Errorf("GitHub タブに切り替えても右ペインがタスクのまま: %q", m.detail.View())
+	}
+	if cmd == nil {
+		t.Error("PR を選択したのに詳細取得の cmd が返っていない")
+	}
+
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: '[', Text: "["}))
+	m = got.(Model)
+	if !strings.Contains(m.detail.View(), "やること") {
+		t.Errorf("タスクタブに戻っても右ペインが PR のまま: %q", m.detail.View())
+	}
 }
 
 // d/enter が返す Cmd は tea.ExecProcess で実プロセスを起動するので、
@@ -843,18 +1018,7 @@ func TestSuccessfulPRRefreshKeepsExecError(t *testing.T) {
 // （m.detailCmd()）が nil にならないケースで検証する。
 func TestShiftRReReadsThroughStore(t *testing.T) {
 	store := &fakeStore{list: taskList("")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
-	if err := inbox.Load(); err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if err := inbox.Refresh(context.Background()); err != nil {
-		t.Fatalf("Refresh() error = %v", err)
-	}
-	m := New(inbox, "claude")
-	it, ok := m.selected()
-	if !ok || it.Kind != domain.KindPR {
-		t.Fatalf("前提が崩れている: selected() = %+v, %v, want PR", it, ok)
-	}
+	m := prModelWith(t, store, &fakeDetails{}, "claude")
 	before := store.loadCalls
 
 	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'R', Text: "R"}))
