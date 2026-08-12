@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"time"
@@ -96,8 +97,11 @@ func wrapRunError(err error, stderr []byte, ctxErr error) error {
 	if msg := bytes.TrimSpace(stderr); len(msg) > 0 {
 		return fmt.Errorf("gh: %s", msg)
 	}
-	if ctxErr != nil {
+	if errors.Is(ctxErr, context.DeadlineExceeded) {
 		return fmt.Errorf("gh: %s でタイムアウトしました。r で再試行できます", timeout)
+	}
+	if ctxErr != nil {
+		return fmt.Errorf("gh: 中断されました: %w", ctxErr)
 	}
 	return fmt.Errorf("gh: %w", err)
 }

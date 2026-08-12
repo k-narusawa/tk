@@ -124,6 +124,14 @@ func TestWrapRunError(t *testing.T) {
 			ctxErr: nil,
 			wantIn: missingBinErr.Error(),
 		},
+		{
+			name:      "stderr無し キャンセル",
+			err:       errors.New("signal: killed"),
+			stderr:    "",
+			ctxErr:    context.Canceled,
+			wantIn:    "中断されました",
+			wantNotIn: "タイムアウト",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
