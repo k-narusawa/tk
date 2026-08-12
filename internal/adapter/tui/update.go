@@ -250,7 +250,11 @@ func (m Model) reloadTasks() (tea.Model, tea.Cmd) {
 		m.errMsg, m.errIsPR = err.Error(), false
 		return m, nil
 	}
-	m.errMsg, m.errIsPR = "", false
+	// PR 取得のエラーはここでは消さない。tasks.md を読み直しても
+	// PR の状況は変わらないので、消すと直ったように見えてしまう。
+	if !m.errIsPR {
+		m.errMsg = ""
+	}
 	m.reload()
 	m.syncDetail()
 	return m, m.detailCmd()
