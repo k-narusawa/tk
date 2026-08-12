@@ -205,17 +205,13 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "r":
+		if m.tab == tabTask {
+			return m.reloadTasks()
+		}
 		return m, m.refreshCmd()
 
 	case "R":
-		if err := m.inbox.Load(); err != nil {
-			m.errMsg, m.errIsPR = err.Error(), false
-			return m, nil
-		}
-		m.errMsg, m.errIsPR = "", false
-		m.reload()
-		m.syncDetail()
-		return m, m.detailCmd()
+		return m.reloadTasks()
 
 	case "enter":
 		it, ok := m.selected()
@@ -246,4 +242,16 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.aiExec(m.items)
 	}
 	return m, nil
+}
+
+// reloadTasks は tasks.md を読み直す。外部エディタでの変更を取り込むためのもの。
+func (m Model) reloadTasks() (tea.Model, tea.Cmd) {
+	if err := m.inbox.Load(); err != nil {
+		m.errMsg, m.errIsPR = err.Error(), false
+		return m, nil
+	}
+	m.errMsg, m.errIsPR = "", false
+	m.reload()
+	m.syncDetail()
+	return m, m.detailCmd()
 }

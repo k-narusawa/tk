@@ -64,7 +64,7 @@ func (f *fakeDetails) Detail(ctx context.Context, repo string, number int) (doma
 func taskList(s string) domain.TaskList { return domain.Parse(strings.Split(s, "\n")) }
 
 // prPair は review/mine 双方に1件ずつ PR を持つ fakePRs を作る。
-// SortInbox の並びでは review が先に来るので items[0] が review 側になる。
+// SortPRs の並びでは review が先に来るので items[0] が review 側になる。
 func prPair() *fakePRs {
 	return &fakePRs{items: map[domain.Role]domain.Item{
 		domain.RoleReview: {ID: domain.PRID("a/x", 1), Kind: domain.KindPR, Repo: "a/x", Number: 1, Title: "fix", Role: domain.RoleReview},
@@ -305,11 +305,12 @@ func TestInitPRFailureKeepsTasksIntact(t *testing.T) {
 }
 
 func TestRKeyReturnsRefreshCmd(t *testing.T) {
-	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	m := prModelWith(t, store, &fakeDetails{}, "claude")
 
 	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'r', Text: "r"}))
 	if cmd == nil {
-		t.Fatal("r で cmd が nil")
+		t.Fatal("GitHub タブの r で cmd が nil")
 	}
 }
 
@@ -1046,6 +1047,53 @@ func TestSuccessfulExecKeepsSaveError(t *testing.T) {
 
 	if m.errMsg != saveErrMsg {
 		t.Errorf("外部プロセスの成功で保存エラーが消えた: errMsg = %q, want %q", m.errMsg, saveErrMsg)
+	}
+}
+
+// タスクタブの r は tasks.md を読み直す。PR の再取得ではない。
+// 見ているタブと関係ない更新をしても、何も起きていないように見える。
+func TestRKeyOnTaskTabReloadsTasks(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	m := newTestModel(t, store)
+	before := store.loadCalls
+
+	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'r', Text: "r"}))
+	m = got.(Model)
+
+	if store.loadCalls != before+1 {
+		t.Errorf("タスクタブの r で Load() の呼び出し回数 = %d, want %d", store.loadCalls, before+1)
+	}
+}
+
+// GitHub タブの r は今まで通り PR を再取得する。
+func TestRKeyOnGitHubTabRefreshesPRs(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	m := prModelWith(t, store, &fakeDetails{}, "claude")
+	before := store.loadCalls
+
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'r', Text: "r"}))
+	if cmd == nil {
+		t.Fatal("GitHub タブの r で cmd が nil")
+	}
+	if _, ok := cmd().(prLoadedMsg); !ok {
+		t.Errorf("GitHub タブの r が返した cmd は PR 再取得ではない")
+	}
+	if store.loadCalls != before {
+		t.Errorf("GitHub タブの r で tasks.md を読み直した: loadCalls = %d, want %d", store.loadCalls, before)
+	}
+}
+
+// R はどちらのタブにいても tasks.md を読み直す。
+func TestShiftRReloadsTasksFromGitHubTab(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	m := prModelWith(t, store, &fakeDetails{}, "claude")
+	before := store.loadCalls
+
+	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'R', Text: "R"}))
+	m = got.(Model)
+
+	if store.loadCalls != before+1 {
+		t.Errorf("GitHub タブの R で Load() の呼び出し回数 = %d, want %d", store.loadCalls, before+1)
 	}
 }
 
