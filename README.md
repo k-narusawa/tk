@@ -7,7 +7,7 @@
 ## 使う
 
 ```sh
-mise use -g ubi:k-narusawa/tk    # ビルド済みバイナリ（Go 不要）
+mise use -g github:k-narusawa/tk # ビルド済みバイナリ（Go 不要）
 mise use -g go:github.com/k-narusawa/tk  # ソースからビルド（Go 必要）
 go install github.com/k-narusawa/tk@latest
 tk
