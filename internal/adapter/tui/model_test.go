@@ -1048,3 +1048,59 @@ func TestSuccessfulExecKeepsSaveError(t *testing.T) {
 		t.Errorf("外部プロセスの成功で保存エラーが消えた: errMsg = %q, want %q", m.errMsg, saveErrMsg)
 	}
 }
+
+// タブ行に両方の名前が出ること。選択中のタブだけが角括弧で囲まれる。
+func TestTabBarMarksCurrentTab(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	if err := inbox.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if err := inbox.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	m := New(inbox, "claude")
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = got.(Model)
+
+	first := strings.Split(m.View().Content, "\n")[0]
+	if !strings.Contains(first, "タスク") || !strings.Contains(first, "GitHub") {
+		t.Fatalf("タブ行に両方のタブ名が出ていない: %q", first)
+	}
+	if !strings.Contains(first, "[ タスク ]") {
+		t.Errorf("タスクタブが選択中として出ていない: %q", first)
+	}
+	if strings.Contains(first, "[ GitHub ]") {
+		t.Errorf("非選択の GitHub が選択中として出ている: %q", first)
+	}
+
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: ']', Text: "]"}))
+	m = got.(Model)
+
+	first = strings.Split(m.View().Content, "\n")[0]
+	if !strings.Contains(first, "[ GitHub ]") {
+		t.Errorf("] の後も GitHub が選択中になっていない: %q", first)
+	}
+	if strings.Contains(first, "[ タスク ]") {
+		t.Errorf("] の後もタスクが選択中のまま: %q", first)
+	}
+}
+
+// タブ行を足しても、狭い端末で幅・高さを超えないこと。
+func TestTabBarFitsNarrowTerminal(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+
+	for _, size := range [][2]int{{100, 30}, {80, 24}, {60, 15}, {20, 8}} {
+		updated, _ := m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		mm := updated.(Model)
+		lines := strings.Split(mm.View().Content, "\n")
+		if len(lines) > size[1] {
+			t.Errorf("size %v: 行数 = %d, want <= %d", size, len(lines), size[1])
+		}
+		for i, ln := range lines {
+			if w := lipgloss.Width(ln); w > size[0] {
+				t.Errorf("size %v: %d行目が幅を超えている（幅=%d）: %q", size, i, w, ln)
+			}
+		}
+	}
+}

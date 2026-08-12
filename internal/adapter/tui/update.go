@@ -66,7 +66,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		left := m.width * 40 / 100
 		right := m.width - left
-		inner := max(1, m.height-4)
+		inner := max(1, m.height-5)
 		// 枠線の内側に収める。box.Width/Height は枠を含む寸法なので、
 		// viewport には -2 した値を渡さないと溢れて箱が膨らむ。
 		m.detail.SetWidth(max(1, right-2))
