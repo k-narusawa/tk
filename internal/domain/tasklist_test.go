@@ -79,6 +79,16 @@ func TestAddInsertsAfterLastCheckbox(t *testing.T) {
 	}
 }
 
+// CRLF で統一されたファイルに Add すると、挿入行も CRLF に揃える。
+func TestAddToCRLFFilePreservesLineEnding(t *testing.T) {
+	src := "# 仕事\r\n- [ ] A\r\n"
+	got := strings.Join(Parse(lines(src)).Add("新規").Render(), "\n")
+	want := "# 仕事\r\n- [ ] A\r\n- [ ] 新規\r\n"
+	if got != want {
+		t.Errorf("CRLF ファイルへの Add で改行コードが揃わない\n--- got:\n%q\n--- want:\n%q", got, want)
+	}
+}
+
 func TestAddToFileWithoutCheckbox(t *testing.T) {
 	src := "# 仕事\n\n## メモ\n自由記述\n"
 	got := strings.Join(Parse(lines(src)).Add("最初のタスク").Render(), "\n")

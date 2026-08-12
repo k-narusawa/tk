@@ -101,9 +101,14 @@ func (t TaskList) Add(title string) TaskList {
 		}
 	}
 
+	newLine := "- [ ] " + title
+	if at >= 0 && strings.HasSuffix(t.lines[at], "\r") {
+		newLine += "\r"
+	}
+
 	lines := make([]string, 0, len(t.lines)+1)
 	lines = append(lines, t.lines[:at+1]...)
-	lines = append(lines, "- [ ] "+title)
+	lines = append(lines, newLine)
 	lines = append(lines, t.lines[at+1:]...)
 	return Parse(lines)
 }
