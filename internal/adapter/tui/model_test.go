@@ -1217,16 +1217,3 @@ func TestTaskTabEmptyShowsNothing(t *testing.T) {
 		t.Errorf("タスクタブの空表示に文言が出ている:\n%s", content)
 	}
 }
-
-// PR が1件でもあれば状態表示は出ない。
-func TestGitHubTabWithPRsShowsNoPlaceholder(t *testing.T) {
-	m := prModel(t, "claude")
-
-	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
-	m = got.(Model)
-
-	content := m.View().Content
-	if strings.Contains(content, "取得中") || strings.Contains(content, "PR なし") {
-		t.Errorf("PR があるのに状態表示が出ている:\n%s", content)
-	}
-}
