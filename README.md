@@ -36,6 +36,8 @@ tk
 
 ## 開発
 
+Go のバージョンは `mise.toml` で固定している。`mise install` で入れる。
+
 ```sh
 go test ./...          # 全テスト
 go test -race ./...    # 競合検出（TUI と Refresh の並行処理があるので PR 前に必ず）
