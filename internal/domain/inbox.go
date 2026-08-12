@@ -17,34 +17,6 @@ func MergePRs(review, mine []Item) []Item {
 	return out
 }
 
-// SortInbox の並び順は固定。ユーザーが変更する手段は用意しない。
-// タスクは自分で書いた順序に意味があるので並べ替えない。
-// PR は「他人を待たせているもの」を先に出す。
-func SortInbox(tasks, prs []Item) []Item {
-	out := make([]Item, 0, len(tasks)+len(prs))
-	for _, it := range tasks {
-		if !it.Done {
-			out = append(out, it)
-		}
-	}
-	for _, it := range prs {
-		if it.Role == RoleReview {
-			out = append(out, it)
-		}
-	}
-	for _, it := range prs {
-		if it.Role != RoleReview {
-			out = append(out, it)
-		}
-	}
-	for _, it := range tasks {
-		if it.Done {
-			out = append(out, it)
-		}
-	}
-	return out
-}
-
 // SortTasks / SortPRs の並び順は固定。ユーザーが変更する手段は用意しない。
 // タスクは自分で書いた順序に意味があるので並べ替えない。
 func SortTasks(tasks []Item) []Item {

@@ -39,17 +39,6 @@ func (i *Inbox) Load() error {
 	return nil
 }
 
-// items assumes i.mu is held.
-func (i *Inbox) items() []domain.Item {
-	return domain.SortInbox(i.tasks.Items(), i.prItems)
-}
-
-func (i *Inbox) Items() []domain.Item {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	return i.items()
-}
-
 func (i *Inbox) Tasks() []domain.Item {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -60,17 +49,6 @@ func (i *Inbox) PRs() []domain.Item {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	return domain.SortPRs(i.prItems)
-}
-
-func (i *Inbox) Find(id domain.ID) (domain.Item, bool) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	for _, it := range i.items() {
-		if it.ID == id {
-			return it, true
-		}
-	}
-	return domain.Item{}, false
 }
 
 // Refresh は2つの role を並行に取って重複排除する。
