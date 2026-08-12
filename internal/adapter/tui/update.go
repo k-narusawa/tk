@@ -189,6 +189,9 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.detailCmd()
 
 	case "n":
+		if m.tab != tabTask {
+			return m, nil
+		}
 		m.adding = true
 		return m, m.input.Focus()
 

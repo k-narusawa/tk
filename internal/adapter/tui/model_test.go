@@ -1104,3 +1104,50 @@ func TestTabBarFitsNarrowTerminal(t *testing.T) {
 		}
 	}
 }
+
+// GitHub タブで n を押してもタスク追加モードに入らないこと。
+// 入ってしまうと、見えないタブにタスクが増える。
+func TestNKeyDisabledOnGitHubTab(t *testing.T) {
+	m := prModel(t, "claude")
+
+	got, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'n', Text: "n"}))
+	m = got.(Model)
+
+	if m.adding {
+		t.Error("GitHub タブで n を押して追加モードに入った")
+	}
+	if cmd != nil {
+		t.Error("GitHub タブの n が cmd を返した")
+	}
+}
+
+// GitHub タブで space を押しても保存が走らないこと。
+func TestSpaceDisabledOnGitHubTab(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	m := prModelWith(t, store, &fakeDetails{}, "claude")
+
+	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace}))
+	m = got.(Model)
+
+	if len(store.saved) != 0 {
+		t.Errorf("GitHub タブの space で Save が呼ばれた: %+v", store.saved)
+	}
+	if m.errMsg != "" {
+		t.Errorf("GitHub タブの space でエラーが出た: %q", m.errMsg)
+	}
+}
+
+// タスクタブでは n が今まで通り効くこと。
+func TestNKeyStillWorksOnTaskTab(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+
+	got, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'n', Text: "n"}))
+	m = got.(Model)
+
+	if !m.adding {
+		t.Error("タスクタブで n を押しても追加モードに入らない")
+	}
+	if cmd == nil {
+		t.Error("タスクタブの n が cmd を返さない（Focus されていない）")
+	}
+}
