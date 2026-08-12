@@ -7,6 +7,13 @@ import (
 	"testing"
 )
 
+func skipIfRoot(t *testing.T) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("root ではディレクトリのパーミッションが効かないためスキップ")
+	}
+}
+
 const sample = "# 仕事\n\n- [ ] やること @today\n\n## メモ\n自由記述\n"
 
 func TestLoadSaveRoundTrip(t *testing.T) {
@@ -226,5 +233,55 @@ func TestSavePreservesFileMode(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o644 {
 		t.Errorf("Save() 後のパーミッション = %v, want 0644", info.Mode().Perm())
+	}
+}
+
+// 書き込み不可なディレクトリでの Save は、os.CreateTemp の時点で失敗する。
+// このとき 1) エラーを返す 2) 元ファイルが無傷 3) .tk-* の残骸を残さない、
+// ことを保証する。CreateTemp/WriteString/Sync/Close/Rename のどこで失敗しても
+// defer os.Remove(tmp) 以前に return する経路は通らないため、この4つの失敗経路は
+// すべて同じ「元ファイルは無傷・一時ファイルは残らない」という性質を持つ。
+// ディレクトリのパーミッションで塞げるのは CreateTemp の失敗のみだが、
+// 残る3経路も同じコードパスを通るため回帰ガードとして十分。
+func TestSaveErrorPathLeavesOriginalIntact(t *testing.T) {
+	skipIfRoot(t)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.md")
+	if err := os.WriteFile(path, []byte(sample), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewStore(path)
+	list, err := s.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(dir, 0o755) // t.TempDir() のクリーンアップが書き込めるように戻す
+
+	if err := s.Save(list.Add("書き込めないはず")); err == nil {
+		t.Fatal("書き込み不可ディレクトリへの Save がエラーを返さなかった")
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != sample {
+		t.Errorf("Save 失敗後にファイル内容が変わった\n--- got:\n%q\n--- want:\n%q", got, sample)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".tk-") {
+			t.Errorf("Save 失敗後も一時ファイルが残っている: %s", e.Name())
+		}
 	}
 }
