@@ -67,31 +67,46 @@ func (m Model) View() tea.View {
 	return v
 }
 
+// focusColor はフォーカス中の枠の色。ANSI の 2 番を指すので、実際の緑は
+// 端末のテーマに従う。
+var focusColor = lipgloss.Color("2")
+
 // paneView は左カラムの枠を1つ描く。フォーカスしていない側は中身を出さず、
 // 件数だけをタイトルに載せる（中が見えないので、件数が無いと PR が来て
 // いるかどうか分からなくなる）。
 func (m Model) paneView(l layout, p paneID) string {
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Width(l.left)
-	title := fmt.Sprintf("%s (%d)", paneNames[p], len(m.paneItems(p)))
-	if p != m.focus {
-		return withTitle(box.Height(l.collapsed).Render(""), title)
+	border := lipgloss.NewStyle()
+	body, height := "", l.collapsed
+	if p == m.focus {
+		box = box.BorderForeground(focusColor)
+		border = border.Foreground(focusColor)
+		body, height = m.listView(l.left-2, l.focused-2), l.focused
 	}
-	return withTitle(box.Height(l.focused).Render(m.listView(l.left-2, l.focused-2)), title)
+
+	title := fmt.Sprintf("%s (%d)", paneNames[p], len(m.paneItems(p)))
+	return withTitle(box.Height(height).Render(body), border.Render(topBorder(l.left, title)))
 }
 
-// withTitle は枠の上辺にタイトルを差し込む（╭─タスク (4)───╮）。
-// lipgloss v2 に枠タイトルの API が無いので、描画済みの1行目を組み替える。
-func withTitle(box, title string) string {
-	lines := strings.Split(box, "\n")
-	top := []rune(lines[0])
-	// 罫線は1桁ぶんなので rune 数 = 表示幅。タイトルは全角を含むので
-	// 削る本数は表示幅で数える。角と先頭の罫線は残す。
-	w := lipgloss.Width(title)
-	if 2+w > len(top)-1 {
-		return box
+// withTitle は枠の1行目をタイトル付きの上辺に差し替える。lipgloss v2 に
+// 枠タイトルの API が無いので上辺だけ自前で作る。色を付けると1行目が
+// エスケープ列を含むため、描画済みの文字列は切り貼りしない。
+func withTitle(box, top string) string {
+	_, rest, found := strings.Cut(box, "\n")
+	if !found {
+		return top
 	}
-	lines[0] = string(top[:2]) + title + string(top[2+w:])
-	return strings.Join(lines, "\n")
+	return top + "\n" + rest
+}
+
+// topBorder は ╭─タスク (4)────╮ を組み立てる。width は枠線を含む外寸。
+func topBorder(width int, title string) string {
+	// ╭ ─ title … ╮ が収まらない幅ならタイトルを諦める。狭い端末で枠が
+	// 壊れるより無題のほうがまし。
+	if fill := width - 3 - lipgloss.Width(title); fill >= 0 {
+		return "╭─" + title + strings.Repeat("─", fill) + "╮"
+	}
+	return "╭" + strings.Repeat("─", max(0, width-2)) + "╮"
 }
 
 // listView は一覧のうち高さ rows に収まる範囲だけを描画する。box.Height は

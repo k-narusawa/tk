@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/k-narusawa/tk/internal/domain"
 	"github.com/k-narusawa/tk/internal/usecase"
@@ -591,7 +592,9 @@ func TestPanesHaveEqualHeight(t *testing.T) {
 	for _, size := range [][2]int{{100, 30}, {80, 24}, {120, 40}, {60, 15}} {
 		updated, _ := m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
 		mm := updated.(Model)
-		lines := strings.Split(mm.View().Content, "\n")
+		// フォーカス中の枠は色付きで、行頭にエスケープ列が入る。枠の形だけを
+		// 見たいので落とす。
+		lines := strings.Split(ansi.Strip(mm.View().Content), "\n")
 
 		// 左カラムは2枠あるので、最後に閉じた行（＝カラムの下端）を見る。
 		leftClose, rightClose := -1, -1
@@ -1148,6 +1151,38 @@ func TestPaneTitlesShowNameAndCount(t *testing.T) {
 	}
 	if !strings.Contains(content, "GitHub (2)") {
 		t.Errorf("潰れた GitHub 枠のタイトルに件数が出ていない: %q", content)
+	}
+}
+
+// フォーカス中の枠だけに色が付くこと。潰れているだけだと、どちらを
+// 操作しているかが一覧の中身からしか分からない。
+func TestFocusedPaneBorderIsColored(t *testing.T) {
+	m := prModelWith(t, &fakeStore{list: taskList("- [ ] やること\n")}, &fakeDetails{}, "claude")
+
+	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'h', Text: "h"}))
+	m = got.(Model)
+	got, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = got.(Model)
+
+	// 枠の上辺はタイトルを含むので、色の有無をタイトルの直前で見る。
+	lines := strings.Split(m.View().Content, "\n")
+	var taskTop, githubTop string
+	for _, ln := range lines {
+		if strings.Contains(ansi.Strip(ln), "タスク (1)") {
+			taskTop = ln
+		}
+		if strings.Contains(ansi.Strip(ln), "GitHub (2)") {
+			githubTop = ln
+		}
+	}
+	if taskTop == "" || githubTop == "" {
+		t.Fatalf("枠のタイトル行が見つからない: %q", m.View().Content)
+	}
+	if ansi.Strip(taskTop) == taskTop {
+		t.Errorf("フォーカス中のタスク枠に色が付いていない: %q", taskTop)
+	}
+	if s := strings.SplitN(githubTop, "╭─GitHub", 2)[0]; ansi.Strip(s) != s {
+		t.Errorf("フォーカスしていない GitHub 枠に色が付いている: %q", githubTop)
 	}
 }
 
