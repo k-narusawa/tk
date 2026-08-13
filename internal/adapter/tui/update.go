@@ -64,13 +64,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		left := m.width * 40 / 100
-		right := m.width - left
-		inner := max(1, m.height-5)
+		l := newLayout(m.width, m.height)
 		// 枠線の内側に収める。box.Width/Height は枠を含む寸法なので、
 		// viewport には -2 した値を渡さないと溢れて箱が膨らむ。
-		m.detail.SetWidth(max(1, right-2))
-		m.detail.SetHeight(max(1, inner-2))
+		m.detail.SetWidth(max(1, l.right-2))
+		m.detail.SetHeight(max(1, l.body-2))
 		m.input.SetWidth(max(1, m.width-4))
 		m.syncDetail()
 		return m, nil
@@ -154,12 +152,9 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 
-	case "[":
-		m.switchTab(tabTask)
-		return m, m.detailCmd()
-
-	case "]":
-		m.switchTab(tabGitHub)
+	// ペインは2つなので、h も l ももう一方へ移る。
+	case "h", "l":
+		m.toggleFocus()
 		return m, m.detailCmd()
 
 	case "j", "down":
@@ -191,7 +186,7 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.detailCmd()
 
 	case "n":
-		if m.tab != tabTask {
+		if m.focus != paneTasks {
 			return m, nil
 		}
 		m.adding = true
@@ -206,7 +201,7 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "r":
-		if m.tab == tabTask {
+		if m.focus == paneTasks {
 			return m.reloadTasks()
 		}
 		if m.refreshing {

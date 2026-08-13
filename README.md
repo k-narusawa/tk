@@ -1,6 +1,6 @@
 # tk
 
-タスクと GitHub PR をタブで切り替えて見るターミナル UI。
+タスクと GitHub PR を上下のペインに並べて見るターミナル UI。
 
 タスクは `~/tasks.md`（Markdown のチェックボックス）に保存する。Neovim で直接編集してもよい。GitHub へのアクセスは `gh` CLI をサブプロセスで叩く。認証情報は tk 自身が一切扱わない。
 
@@ -17,15 +17,15 @@ tk
 
 | キー | 動作 |
 |---|---|
-| `[` / `]` | タスクタブ / GitHub タブへ切り替え |
+| `h` / `l` | ペインのフォーカスを移す（2つなので、どちらのキーでも往復する） |
 | `j` / `k` | カーソル移動 |
-| `space` | タスクの完了トグル（即 `tasks.md` へ書き戻し。タスクタブのみ） |
-| `n` | 新規タスク追加（タスクタブのみ） |
-| `enter` | PR をブラウザで開く（GitHub タブのみ） |
-| `d` | `gh pr diff` を表示（GitHub タブのみ） |
-| `a` / `A` | 選択アイテム / 現在のタブ全体を AI CLI に渡す |
-| `r` | 現在のタブを更新（タスクタブなら `tasks.md` 再読み込み、GitHub タブなら PR 再取得） |
-| `R` | どちらのタブにいても `tasks.md` を再読み込み |
+| `space` | タスクの完了トグル（即 `tasks.md` へ書き戻し。タスクペインのみ） |
+| `n` | 新規タスク追加（タスクペインのみ） |
+| `enter` | PR をブラウザで開く（GitHub ペインのみ） |
+| `d` | `gh pr diff` を表示（GitHub ペインのみ） |
+| `a` / `A` | 選択アイテム / フォーカス中ペイン全体を AI CLI に渡す |
+| `r` | フォーカス中のペインを更新（タスクなら `tasks.md` 再読み込み、GitHub なら PR 再取得） |
+| `R` | どちらのペインにいても `tasks.md` を再読み込み |
 | `ctrl+d` / `ctrl+u` | 右ペインのスクロール |
 | `q` | 終了 |
 
@@ -34,7 +34,9 @@ tk
 | `TK_TASKS_FILE` | `~/tasks.md` | タスクの保存先 |
 | `TK_AI_CMD` | `claude` | `a` / `A` で起動する AI CLI |
 
-`a` は選択中のアイテム、`A` は現在のタブに出ているアイテム全部を `$TK_AI_CMD` に渡す。tk が端末の外へデータを出す唯一の経路なので、機密を含むタスク名がある場合は注意すること。
+フォーカス中のペインは枠が緑になり、フォーカスしていない側は枠線だけに潰れてタイトルに件数（`GitHub (3)`）が出る。
+
+`a` は選択中のアイテム、`A` はフォーカス中のペインに出ているアイテム全部を `$TK_AI_CMD` に渡す。tk が端末の外へデータを出す唯一の経路なので、機密を含むタスク名がある場合は注意すること。
 
 ## 開発
 
@@ -75,12 +77,15 @@ TK_TASKS_FILE=/tmp/t.md go run .   # 自分の tasks.md を汚さずに試す
 - **`tasks.md` の非チェックボックス行（見出し・自由記述）は原文のまま保持する。** `Parse` → `Render` がバイト一致することを domain のテストで守っている。
 - **保存前に外部変更を検知したら上書きせずエラーを返す。** `ID` が行番号ベースなので、ずれると別のタスクを完了にしてしまう。自動マージはしない。
 - **レイアウト計算は実測する。** lipgloss の `Width`/`Height` は枠線込みかつ最小値であって上限ではない。「端末の幅・高さに収まる」形でテストを書く。
-- **画面最上部のタブ行を高さ計算に入れる。** 本文の高さは `m.height-5`。`view.go` の `View` と `update.go` の `WindowSizeMsg` の両方に同じ値があるので、片方だけ直すと右ペインが枠から溢れる。
+- **寸法の計算は `view.go` の `newLayout` に集約してある。** `View` と `update.go` の `WindowSizeMsg` の両方が同じ値を要るので、直接計算を書き足さないこと。片方だけずれると右ペインが枠から溢れる。
+- **枠の中身は行数も幅も自分で切り詰める。** `box.Height` / `Width` は最小値なので、一覧に末尾改行を付けたり枠幅を超える行を折り返させたりすると、枠がその分伸びて下のペインを押し出す。
+- **枠の高さは `paneView` / `detailView` を直接測って検証する。** レンダリング結果から枠の閉じ位置（`╰` や `╯`）を探す形だと、左カラムが伸びても最終行は「左の下端 ++ 右の下端」のままなので、ズレを検出できない。
 
 ### ドキュメント
 
 - [docs/superpowers/specs/2026-08-11-tk-design.md](docs/superpowers/specs/2026-08-11-tk-design.md) — 設計。スコープ外にしたものと、その理由
-- [docs/superpowers/specs/2026-08-12-tk-tabs-design.md](docs/superpowers/specs/2026-08-12-tk-tabs-design.md) — タスク / GitHub のタブ分割
+- [docs/superpowers/specs/2026-08-12-tk-tabs-design.md](docs/superpowers/specs/2026-08-12-tk-tabs-design.md) — タスク / GitHub の分割（当時はタブ）
+- [docs/superpowers/specs/2026-08-13-tk-panes-design.md](docs/superpowers/specs/2026-08-13-tk-panes-design.md) — タブをやめて lazygit 風の上下ペインへ
 - [docs/known-issues.md](docs/known-issues.md) — 既知の課題、設計判断の記録、GitHub issue との対応表
 
 「なぜそうしなかったか」は known-issues に書いてある。設計を変えたくなったらまずそこを読むこと。
