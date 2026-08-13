@@ -15,11 +15,12 @@ type detailEntry struct {
 	err    string
 }
 
-type tabID int
+type paneID int
 
 const (
-	tabTask tabID = iota
-	tabGitHub
+	paneTasks paneID = iota
+	paneGitHub
+	paneCount
 )
 
 type Model struct {
@@ -29,8 +30,9 @@ type Model struct {
 	items  []domain.Item
 	cursor int
 
-	tab         tabID
-	otherCursor int // 表示していない側のタブのカーソル位置
+	focus       paneID
+	otherItems  []domain.Item // フォーカスしていない側のペインの一覧
+	otherCursor int           // フォーカスしていない側のペインのカーソル位置
 
 	detail  viewport.Model
 	details map[domain.ID]detailEntry
@@ -52,12 +54,13 @@ func New(inbox *usecase.Inbox, aiCmd string) Model {
 	ti.SetWidth(40)
 
 	return Model{
-		inbox:   inbox,
-		aiCmd:   aiCmd,
-		items:   inbox.Tasks(),
-		detail:  viewport.New(viewport.WithWidth(40), viewport.WithHeight(20)),
-		details: make(map[domain.ID]detailEntry),
-		input:   ti,
+		inbox:      inbox,
+		aiCmd:      aiCmd,
+		items:      inbox.Tasks(),
+		otherItems: inbox.PRs(),
+		detail:     viewport.New(viewport.WithWidth(40), viewport.WithHeight(20)),
+		details:    make(map[domain.ID]detailEntry),
+		input:      ti,
 	}
 }
 
@@ -68,24 +71,34 @@ func (m Model) selected() (domain.Item, bool) {
 	return m.items[m.cursor], true
 }
 
-// reload は現在のタブの一覧を取り直し、カーソルを範囲内に収める。
+// reload は両ペインの一覧を取り直し、カーソルを範囲内に収める。
+// 潰れている側も件数をタイトルに出すので、両方いる。
 func (m *Model) reload() {
-	if m.tab == tabGitHub {
-		m.items = m.inbox.PRs()
+	tasks, prs := m.inbox.Tasks(), m.inbox.PRs()
+	if m.focus == paneGitHub {
+		m.items, m.otherItems = prs, tasks
 	} else {
-		m.items = m.inbox.Tasks()
+		m.items, m.otherItems = tasks, prs
 	}
 	if m.cursor >= len(m.items) {
 		m.cursor = max(0, len(m.items)-1)
 	}
 }
 
-// switchTab はカーソルを退避してタブを入れ替える。
-func (m *Model) switchTab(t tabID) {
-	if m.tab == t {
+// focusPane はカーソルを退避してフォーカスを移す。
+func (m *Model) focusPane(p paneID) {
+	if m.focus == p {
 		return
 	}
-	m.tab, m.cursor, m.otherCursor = t, m.otherCursor, m.cursor
+	m.focus, m.cursor, m.otherCursor = p, m.otherCursor, m.cursor
 	m.reload()
 	m.syncDetail()
+}
+
+// paneItems は指定ペインの一覧を返す。潰れた枠の件数表示に使う。
+func (m Model) paneItems(p paneID) []domain.Item {
+	if p == m.focus {
+		return m.items
+	}
+	return m.otherItems
 }

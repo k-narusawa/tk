@@ -10,32 +10,40 @@ import (
 	"github.com/k-narusawa/tk/internal/domain"
 )
 
-const help = " [/]:タブ j/k:移動 space:完了 n:追加 enter:開く d:diff a/A:AI r:更新 R:再読込 q:終了"
+const help = " h/l:ペイン j/k:移動 space:完了 n:追加 enter:開く d:diff a/A:AI r:更新 R:再読込 q:終了"
 
-// tabBar は選択中のタブを角括弧で囲む。色を使わないのは、この画面が
-// 枠線以外にスタイルを持っていないため。
-func (m Model) tabBar() string {
-	var b strings.Builder
-	for i, name := range [...]string{"タスク", "GitHub"} {
-		if tabID(i) == m.tab {
-			b.WriteString(" [ " + name + " ]")
-		} else {
-			b.WriteString("  " + name + " ")
-		}
-	}
-	return b.String()
+var paneNames = [paneCount]string{"タスク", "GitHub"}
+
+// layout は端末サイズから各枠の寸法（枠線込み）を決める。View と
+// WindowSizeMsg の両方が同じ値を要るので、計算はここ1箇所に置く。
+type layout struct {
+	left, right        int // 左カラム / 右ペインの幅
+	body               int // 右ペイン、および左カラム全体の高さ
+	focused, collapsed int // 左カラム2枠の高さ（合計 = body）
+}
+
+func newLayout(width, height int) layout {
+	var l layout
+	l.left = max(1, width*40/100)
+	l.right = max(1, width-l.left)
+	// 潰れた枠はタイトル（枠の上辺）と空の1行だけ。box.Height は最小値なので、
+	// 空文字を描いても1行は残る。フォーカス中が残りの高さを全部使う。
+	l.collapsed = 3
+	// 下限は両方の枠が潰れずに描ける高さ。これを割る端末では溢れるが、
+	// 潰れた枠より小さくすると枠線そのものが崩れる。
+	l.body = max(2*l.collapsed, height-4)
+	l.focused = l.body - l.collapsed
+	return l
 }
 
 func (m Model) View() tea.View {
+	l := newLayout(m.width, m.height)
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder())
-	left := m.width * 40 / 100
-	right := m.width - left
-	inner := max(1, m.height-5)
 
 	body := lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		box.Width(max(1, left)).Height(inner).Render(m.listView(inner-2)),
-		box.Width(max(1, right)).Height(inner).Render(m.detail.View()),
+		lipgloss.JoinVertical(lipgloss.Left, m.paneView(l, paneTasks), m.paneView(l, paneGitHub)),
+		box.Width(l.right).Height(l.body).Render(m.detail.View()),
 	)
 
 	footer := help
@@ -47,14 +55,11 @@ func (m Model) View() tea.View {
 	}
 	// 端末幅に収める。ヘルプは固定 70 桁前後あり、gh の stderr はさらに
 	// 長くなる。溢れると折り返してレイアウトが崩れる。
-	tabs := m.tabBar()
 	if m.width > 0 {
-		clamp := lipgloss.NewStyle().MaxWidth(m.width)
-		footer = clamp.Render(footer)
-		tabs = clamp.Render(tabs)
+		footer = lipgloss.NewStyle().MaxWidth(m.width).Render(footer)
 	}
 
-	v := tea.NewView(tabs + "\n" + body + "\n" + footer)
+	v := tea.NewView(body + "\n" + footer)
 	v.AltScreen = true
 	if m.adding {
 		v.Cursor = m.input.Cursor()
@@ -62,13 +67,43 @@ func (m Model) View() tea.View {
 	return v
 }
 
+// paneView は左カラムの枠を1つ描く。フォーカスしていない側は中身を出さず、
+// 件数だけをタイトルに載せる（中が見えないので、件数が無いと PR が来て
+// いるかどうか分からなくなる）。
+func (m Model) paneView(l layout, p paneID) string {
+	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Width(l.left)
+	title := fmt.Sprintf("%s (%d)", paneNames[p], len(m.paneItems(p)))
+	if p != m.focus {
+		return withTitle(box.Height(l.collapsed).Render(""), title)
+	}
+	return withTitle(box.Height(l.focused).Render(m.listView(l.left-2, l.focused-2)), title)
+}
+
+// withTitle は枠の上辺にタイトルを差し込む（╭─タスク (4)───╮）。
+// lipgloss v2 に枠タイトルの API が無いので、描画済みの1行目を組み替える。
+func withTitle(box, title string) string {
+	lines := strings.Split(box, "\n")
+	top := []rune(lines[0])
+	// 罫線は1桁ぶんなので rune 数 = 表示幅。タイトルは全角を含むので
+	// 削る本数は表示幅で数える。角と先頭の罫線は残す。
+	w := lipgloss.Width(title)
+	if 2+w > len(top)-1 {
+		return box
+	}
+	lines[0] = string(top[:2]) + title + string(top[2+w:])
+	return strings.Join(lines, "\n")
+}
+
 // listView は一覧のうち高さ rows に収まる範囲だけを描画する。box.Height は
 // 最小値であってクランプではないので、全件を無条件に出すと箱が端末を超えて
 // 伸び、フッタが画面外に押し出される（保存失敗などのエラーが見えなくなる）。
 // カーソルが窓の下端を超えたら追従してスクロールする。
-func (m Model) listView(rows int) string {
+// 幅 w を超える行は切り詰める。折り返させると1件が2行になり、同じ理由で
+// 枠が伸びる（PR のタイトルは平気で枠幅を超える）。
+func (m Model) listView(w, rows int) string {
+	clamp := lipgloss.NewStyle().MaxWidth(max(1, w))
 	if len(m.items) == 0 {
-		return m.emptyLabel()
+		return clamp.Render(m.emptyLabel())
 	}
 	rows = max(1, rows)
 	start := 0
@@ -77,29 +112,30 @@ func (m Model) listView(rows int) string {
 	}
 	end := min(len(m.items), start+rows)
 
-	var b strings.Builder
+	// 末尾に改行を付けない。付けると rows 行ぶんの一覧が rows+1 行になり、
+	// 枠が1行ぶん膨らんで下のペインを押し出す。
+	lines := make([]string, 0, end-start)
 	for i := start; i < end; i++ {
-		it := m.items[i]
 		cursor := " "
 		if i == m.cursor {
 			cursor = ">"
 		}
-		b.WriteString(cursor + itemLabel(it) + "\n")
+		lines = append(lines, clamp.Render(cursor+itemLabel(m.items[i])))
 	}
-	return b.String()
+	return strings.Join(lines, "\n")
 }
 
-// emptyLabel は GitHub タブでだけ状態を出す。起動直後は gh の取得が
+// emptyLabel は GitHub ペインでだけ状態を出す。起動直後は gh の取得が
 // 終わるまで必ず空になるので、無表示だと故障と区別できない。
-// タスクタブの空はユーザーが知っている状態なので何も出さない。
+// タスクの空はユーザーが知っている状態なので何も出さない。
 func (m Model) emptyLabel() string {
-	if m.tab != tabGitHub {
+	if m.focus != paneGitHub {
 		return ""
 	}
 	if !m.prLoaded {
-		return "（PR を取得中…）\n"
+		return "（PR を取得中…）"
 	}
-	return "（PR なし）\n"
+	return "（PR なし）"
 }
 
 func itemLabel(it domain.Item) string {
