@@ -75,6 +75,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case prLoadedMsg:
 		m.prLoaded = true
+		m.refreshing = false
 		if msg.err != nil {
 			m.errMsg, m.errIsPR = msg.err.Error(), true
 		} else if m.errIsPR {
@@ -203,6 +204,13 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.focus == paneTasks {
 			return m.reloadTasks()
 		}
+		if m.refreshing {
+			// in-flight 中の連打は無視する。ここで新たに Refresh を
+			// 走らせると、複数の Refresh の到着順が保証されず、新しい
+			// 結果を古い結果で上書きしうる。
+			return m, nil
+		}
+		m.refreshing = true
 		return m, m.refreshCmd()
 
 	case "R":

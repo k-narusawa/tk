@@ -1124,6 +1124,63 @@ func TestRKeyOnGitHubPaneRefreshesPRs(t *testing.T) {
 	}
 }
 
+// GitHub ペインで r を連打しても、前の Refresh が in-flight の間は無視される。
+// 連打で複数の Refresh が並行して走ると、後に投げた方が先に届くとは限らず、
+// 新しい結果を古い結果で上書きしうる（到着順の非保証）ため。
+func TestRKeyIgnoredWhileRefreshInFlight(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	m := prModelWith(t, store, &fakeDetails{}, "claude")
+
+	got, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'r', Text: "r"}))
+	m = got.(Model)
+	if cmd == nil {
+		t.Fatal("最初の r で cmd が nil")
+	}
+	if !m.refreshing {
+		t.Fatal("最初の r 後に refreshing が true になっていない")
+	}
+
+	got, cmd = m.Update(tea.KeyPressMsg(tea.Key{Code: 'r', Text: "r"}))
+	m = got.(Model)
+	if cmd != nil {
+		t.Error("in-flight 中の連打で cmd が返った（2つ目の Refresh が走ってしまう）")
+	}
+
+	got, _ = m.Update(prLoadedMsg{err: nil})
+	m = got.(Model)
+	if m.refreshing {
+		t.Error("prLoadedMsg 到着後も refreshing が true のまま")
+	}
+
+	_, cmd = m.Update(tea.KeyPressMsg(tea.Key{Code: 'r', Text: "r"}))
+	if cmd == nil {
+		t.Error("Refresh 完了後の r で cmd が nil、再度更新できない")
+	}
+}
+
+// Refresh が in-flight の間はフッタに「更新中」を出す。r 連打を無視するのを
+// 無反応と誤解されないようにするため。
+func TestFooterShowsRefreshingIndicator(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	m := prModelWith(t, store, &fakeDetails{}, "claude")
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = got.(Model)
+
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'r', Text: "r"}))
+	m = got.(Model)
+
+	if !strings.Contains(m.View().Content, "更新中") {
+		t.Errorf("in-flight 中に「更新中」がフッタに出ていない: %q", m.View().Content)
+	}
+
+	got, _ = m.Update(prLoadedMsg{err: nil})
+	m = got.(Model)
+
+	if strings.Contains(m.View().Content, "更新中") {
+		t.Errorf("Refresh 完了後も「更新中」が残っている: %q", m.View().Content)
+	}
+}
+
 // R はどちらのペインにいても tasks.md を読み直す。
 func TestShiftRReloadsTasksFromGitHubPane(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
