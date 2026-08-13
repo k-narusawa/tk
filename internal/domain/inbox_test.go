@@ -100,3 +100,15 @@ func TestSortPRsKeepsUnknownRole(t *testing.T) {
 		t.Errorf("Role がゼロ値の PR が失われた: %+v", got)
 	}
 }
+
+func TestTaskLine(t *testing.T) {
+	if n, ok := TaskID(3).TaskLine(); !ok || n != 3 {
+		t.Errorf("TaskLine() = %d, %v, want 3, true", n, ok)
+	}
+	if _, ok := PRID("a/x", 1).TaskLine(); ok {
+		t.Error("PR の ID から行番号が取れてしまった")
+	}
+	if _, ok := ID("task:abc").TaskLine(); ok {
+		t.Error("数字でない ID から行番号が取れてしまった")
+	}
+}
