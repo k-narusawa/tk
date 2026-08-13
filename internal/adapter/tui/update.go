@@ -152,8 +152,8 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	// ペインは2つなので、h も l ももう一方へ移る。
-	case "h", "l", "left", "right":
-		m.focusPane((m.focus + 1) % paneCount)
+	case "h", "l":
+		m.toggleFocus()
 		return m, m.detailCmd()
 
 	case "j", "down":

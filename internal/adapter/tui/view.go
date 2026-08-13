@@ -29,21 +29,20 @@ func newLayout(width, height int) layout {
 	// 潰れた枠はタイトル（枠の上辺）と空の1行だけ。box.Height は最小値なので、
 	// 空文字を描いても1行は残る。フォーカス中が残りの高さを全部使う。
 	l.collapsed = 3
-	// 下限は両方の枠が潰れずに描ける高さ。これを割る端末では溢れるが、
-	// 潰れた枠より小さくすると枠線そのものが崩れる。
-	l.body = max(2*l.collapsed, height-4)
+	// フッタ1行を除いた残り全部を本文が使う。下限は両方の枠が枠線として
+	// 成立する高さ。これを割る端末では溢れるので、View が本文を削る。
+	l.body = max(2*l.collapsed, height-1)
 	l.focused = l.body - l.collapsed
 	return l
 }
 
 func (m Model) View() tea.View {
 	l := newLayout(m.width, m.height)
-	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder())
 
 	body := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		lipgloss.JoinVertical(lipgloss.Left, m.paneView(l, paneTasks), m.paneView(l, paneGitHub)),
-		box.Width(l.right).Height(l.body).Render(m.detail.View()),
+		m.detailView(l),
 	)
 
 	footer := help
@@ -58,8 +57,14 @@ func (m Model) View() tea.View {
 	if m.width > 0 {
 		footer = lipgloss.NewStyle().MaxWidth(m.width).Render(footer)
 	}
+	// 枠が2つ縦に並ぶ下限（7行）を割る端末では、本文を削ってでもフッタを
+	// 残す。フッタが押し出されると保存失敗や gh のエラーが見えなくなる。
+	lines := append(strings.Split(body, "\n"), footer)
+	if m.height > 0 && len(lines) > m.height {
+		lines = append(lines[:m.height-1], footer)
+	}
 
-	v := tea.NewView(body + "\n" + footer)
+	v := tea.NewView(strings.Join(lines, "\n"))
 	v.AltScreen = true
 	if m.adding {
 		v.Cursor = m.input.Cursor()
@@ -69,13 +74,16 @@ func (m Model) View() tea.View {
 
 // focusColor はフォーカス中の枠の色。ANSI の 2 番を指すので、実際の緑は
 // 端末のテーマに従う。
-var focusColor = lipgloss.Color("2")
+var (
+	focusColor = lipgloss.Color("2")
+	paneBorder = lipgloss.RoundedBorder()
+)
 
 // paneView は左カラムの枠を1つ描く。フォーカスしていない側は中身を出さず、
 // 件数だけをタイトルに載せる（中が見えないので、件数が無いと PR が来て
 // いるかどうか分からなくなる）。
 func (m Model) paneView(l layout, p paneID) string {
-	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Width(l.left)
+	box := lipgloss.NewStyle().Border(paneBorder).Width(l.left)
 	border := lipgloss.NewStyle()
 	body, height := "", l.collapsed
 	if p == m.focus {
@@ -83,30 +91,51 @@ func (m Model) paneView(l layout, p paneID) string {
 		border = border.Foreground(focusColor)
 		body, height = m.listView(l.left-2, l.focused-2), l.focused
 	}
-
-	title := fmt.Sprintf("%s (%d)", paneNames[p], len(m.paneItems(p)))
-	return withTitle(box.Height(height).Render(body), border.Render(topBorder(l.left, title)))
+	// 幅が足りないときは件数を落としてでも名前を残す。どちらのペインかが
+	// 分からなくなるほうが困る。
+	return withTitle(box.Height(height).Render(body), border, m.paneTitle(p), paneNames[p])
 }
 
-// withTitle は枠の1行目をタイトル付きの上辺に差し替える。lipgloss v2 に
-// 枠タイトルの API が無いので上辺だけ自前で作る。色を付けると1行目が
-// エスケープ列を含むため、描画済みの文字列は切り貼りしない。
-func withTitle(box, top string) string {
-	_, rest, found := strings.Cut(box, "\n")
+// detailView は右の詳細ペイン。高さは左カラム2枠の合計と一致する。
+func (m Model) detailView(l layout) string {
+	return lipgloss.NewStyle().Border(paneBorder).Width(l.right).Height(l.body).Render(m.detail.View())
+}
+
+// paneTitle は枠に載せる名前と件数。取得前の GitHub を "(0)" と出すと
+// 「PR なし」と見分けが付かないので、そこだけ伏せる。
+func (m Model) paneTitle(p paneID) string {
+	if p == paneGitHub && !m.prLoaded {
+		return paneNames[p] + " (…)"
+	}
+	return fmt.Sprintf("%s (%d)", paneNames[p], m.itemCount(p))
+}
+
+// withTitle は枠の1行目をタイトル付きの上辺（╭─タスク (4)───╮）に差し替える。
+// lipgloss v2 に枠タイトルの API が無いのでここだけ自前で組む。
+// titles は長いものから順に渡す。収まらなければ次を試し、どれも入らなければ
+// 無題にする。狭い端末で枠が壊れるより無題のほうがまし。
+//
+// 幅は描画済みの箱から測る。Style.Width は下限であって、狭いところでは
+// 指定より広い箱が返ってくるため。
+func withTitle(box string, style lipgloss.Style, titles ...string) string {
+	top, rest, found := strings.Cut(box, "\n")
 	if !found {
-		return top
+		return box
 	}
-	return top + "\n" + rest
-}
+	w := lipgloss.Width(top)
+	if w < 3 {
+		return box // 枠の体をなしていない。触らない
+	}
 
-// topBorder は ╭─タスク (4)────╮ を組み立てる。width は枠線を含む外寸。
-func topBorder(width int, title string) string {
-	// ╭ ─ title … ╮ が収まらない幅ならタイトルを諦める。狭い端末で枠が
-	// 壊れるより無題のほうがまし。
-	if fill := width - 3 - lipgloss.Width(title); fill >= 0 {
-		return "╭─" + title + strings.Repeat("─", fill) + "╮"
+	title, fill := "", w-3
+	for _, c := range titles {
+		if n := w - 3 - lipgloss.Width(c); n >= 0 {
+			title, fill = c, n
+			break
+		}
 	}
-	return "╭" + strings.Repeat("─", max(0, width-2)) + "╮"
+	line := paneBorder.TopLeft + paneBorder.Top + title + strings.Repeat(paneBorder.Top, fill) + paneBorder.TopRight
+	return style.Render(line) + "\n" + rest
 }
 
 // listView は一覧のうち高さ rows に収まる範囲だけを描画する。box.Height は

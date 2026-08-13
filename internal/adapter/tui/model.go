@@ -85,20 +85,19 @@ func (m *Model) reload() {
 	}
 }
 
-// focusPane はカーソルを退避してフォーカスを移す。
-func (m *Model) focusPane(p paneID) {
-	if m.focus == p {
-		return
-	}
-	m.focus, m.cursor, m.otherCursor = p, m.otherCursor, m.cursor
+// toggleFocus はカーソルを退避してもう一方のペインへフォーカスを移す。
+// ペインは2つなので、方向は要らない。
+func (m *Model) toggleFocus() {
+	m.focus, m.cursor, m.otherCursor = (m.focus+1)%paneCount, m.otherCursor, m.cursor
 	m.reload()
 	m.syncDetail()
 }
 
-// paneItems は指定ペインの一覧を返す。潰れた枠の件数表示に使う。
-func (m Model) paneItems(p paneID) []domain.Item {
+// itemCount は指定ペインの件数。フォーカスしていない側は件数しか使わない
+// （中身は描かない）。
+func (m Model) itemCount(p paneID) int {
 	if p == m.focus {
-		return m.items
+		return len(m.items)
 	}
-	return m.otherItems
+	return len(m.otherItems)
 }

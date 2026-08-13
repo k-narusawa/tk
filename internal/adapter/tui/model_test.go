@@ -583,35 +583,41 @@ func TestAddKeepsDetailPaneInSyncWithCursor(t *testing.T) {
 	}
 }
 
-// 左右のペインの枠が同じ行で閉じること。ズレると端末で一目で分かる。
-// viewport が box の外寸（枠を含む）に合わせられていると、枠の内側に
-// 収まらず箱が膨らみ、左右で高さが変わる。
+// 左カラム（2枠の合計）と右の詳細ペインの高さが一致すること。ズレると
+// 枠の下端が食い違って端末で一目で分かる。
+//
+// レンダリング結果から枠の閉じ位置を探す形では検出できない。左カラムが
+// 伸びた場合、最終行は「左の下端 ++ 右の下端」のままで、どちらの目印も
+// 同じ行に居続けるため。枠を直接測る。
 func TestPanesHaveEqualHeight(t *testing.T) {
-	m := newTestModel(t, &fakeStore{list: taskList("- [ ] 一つ目\n- [ ] 二つ目\n")})
+	var b strings.Builder
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&b, "- [ ] item%d\n", i)
+	}
+	m := prModelWith(t, &fakeStore{list: taskList(b.String())}, &fakeDetails{}, "claude")
 
 	for _, size := range [][2]int{{100, 30}, {80, 24}, {120, 40}, {60, 15}} {
-		updated, _ := m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
-		mm := updated.(Model)
-		// フォーカス中の枠は色付きで、行頭にエスケープ列が入る。枠の形だけを
-		// 見たいので落とす。
-		lines := strings.Split(ansi.Strip(mm.View().Content), "\n")
+		for _, focus := range []paneID{paneTasks, paneGitHub} {
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+			mm := updated.(Model)
+			if mm.focus != focus {
+				got, _ := mm.Update(tea.KeyPressMsg(tea.Key{Code: 'l', Text: "l"}))
+				mm = got.(Model)
+			}
 
-		// 左カラムは2枠あるので、最後に閉じた行（＝カラムの下端）を見る。
-		leftClose, rightClose := -1, -1
-		for i, ln := range lines {
-			if strings.HasPrefix(ln, "╰") {
-				leftClose = i
+			l := newLayout(size[0], size[1])
+			left := lipgloss.Height(mm.paneView(l, paneTasks)) + lipgloss.Height(mm.paneView(l, paneGitHub))
+			right := lipgloss.Height(mm.detailView(l))
+			if left != right {
+				t.Errorf("size %v focus=%d: 左カラム %d 行, 右ペイン %d 行", size, focus, left, right)
 			}
-			if strings.HasSuffix(strings.TrimRight(ln, " "), "╯") {
-				rightClose = i
+
+			for i, ln := range strings.Split(mm.View().Content, "\n") {
+				if w := lipgloss.Width(ln); w > size[0] {
+					t.Errorf("size %v: %d行目が端末幅を超えている（幅=%d, want <=%d）: %q",
+						size, i, w, size[0], ansi.Strip(ln))
+				}
 			}
-			if w := lipgloss.Width(ln); w > size[0] {
-				t.Errorf("size %v: %d行目が端末幅を超えている（幅=%d, want <=%d）: %q", size, i, w, size[0], ln)
-			}
-		}
-		if leftClose != rightClose {
-			t.Errorf("size %v: 左右の枠の高さが違う（左=%d行目, 右=%d行目, 差=%d行）",
-				size, leftClose, rightClose, rightClose-leftClose)
 		}
 	}
 }
@@ -677,9 +683,9 @@ func TestLongErrorInFooterDoesNotOverflow(t *testing.T) {
 	}
 }
 
-// prModelWith は PR を取得済みで GitHub ペインを開いた Model を作る。
-// ペイン分割後は New() がタスクペインから始まるので、PR を選択した状態を
-// 作るには `]` を通す必要がある。
+// prModelWith は PR を取得済みで GitHub ペインにフォーカスした Model を作る。
+// New() はタスクペインから始まるので `l` を通す。取得完了を Model に伝える
+// のは prLoadedMsg なので、実際の起動と同じくそれも流す。
 func prModelWith(t *testing.T, store *fakeStore, details *fakeDetails, aiCmd string) Model {
 	t.Helper()
 	inbox := usecase.NewInbox(store, prPair(), details)
@@ -690,7 +696,9 @@ func prModelWith(t *testing.T, store *fakeStore, details *fakeDetails, aiCmd str
 		t.Fatalf("Refresh() error = %v", err)
 	}
 	m := New(inbox, aiCmd)
-	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'l', Text: "l"}))
+	got, _ := m.Update(prLoadedMsg{})
+	m = got.(Model)
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'l', Text: "l"}))
 	m = got.(Model)
 	it, ok := m.selected()
 	if !ok || it.Kind != domain.KindPR {
@@ -1145,6 +1153,15 @@ func TestPaneTitlesShowNameAndCount(t *testing.T) {
 	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = got.(Model)
 
+	// 取得が終わるまでは件数を伏せる。潰れた枠は中身が見えないので、
+	// 取得中の "(0)" が「PR なし」と区別できない。
+	if content := m.View().Content; !strings.Contains(content, "GitHub (…)") {
+		t.Errorf("取得前の GitHub 枠が件数を出している: %q", content)
+	}
+
+	got, _ = m.Update(prLoadedMsg{})
+	m = got.(Model)
+
 	content := m.View().Content
 	if !strings.Contains(content, "タスク (1)") {
 		t.Errorf("タスク枠のタイトルに件数が出ていない: %q", content)
@@ -1181,6 +1198,16 @@ func TestFocusedPaneBorderIsColored(t *testing.T) {
 	if ansi.Strip(taskTop) == taskTop {
 		t.Errorf("フォーカス中のタスク枠に色が付いていない: %q", taskTop)
 	}
+	// 上辺は自前で組んでいるので、そこだけ見ても箱本体の枠色は分からない。
+	// フォーカス中の枠の下端（左カラムで最初に閉じる行）も見る。
+	for _, ln := range lines {
+		if strings.HasPrefix(ansi.Strip(ln), "╰") {
+			if ansi.Strip(ln) == ln {
+				t.Errorf("フォーカス中の枠の上辺以外に色が付いていない: %q", ln)
+			}
+			break
+		}
+	}
 	if s := strings.SplitN(githubTop, "╭─GitHub", 2)[0]; ansi.Strip(s) != s {
 		t.Errorf("フォーカスしていない GitHub 枠に色が付いている: %q", githubTop)
 	}
@@ -1212,6 +1239,44 @@ func TestAccordionSwapsPaneHeights(t *testing.T) {
 	}
 }
 
+// 端末の高さを使い切ること。余らせると、アコーディオンで広げたペインに
+// 出せるはずの行を捨てることになる。
+func TestRenderUsesFullTerminalHeight(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&b, "- [ ] item%d\n", i)
+	}
+	m := newTestModel(t, &fakeStore{list: taskList(b.String())})
+
+	for _, size := range [][2]int{{100, 30}, {80, 24}, {60, 15}, {40, 10}} {
+		updated, _ := m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		mm := updated.(Model)
+		if n := len(strings.Split(mm.View().Content, "\n")); n != size[1] {
+			t.Errorf("size %v: レンダリング行数 = %d, want %d", size, n, size[1])
+		}
+	}
+}
+
+// 枠が2つ入らない高さでは本文を削ってでもフッタを残すこと。フッタが
+// 押し出されると、保存失敗や gh のエラーが見えなくなる。
+func TestFooterSurvivesTinyTerminal(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+	got, _ := m.Update(prLoadedMsg{err: errors.New("gh: not logged in")})
+	m = got.(Model)
+
+	for h := 1; h <= 8; h++ {
+		updated, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: h})
+		mm := updated.(Model)
+		lines := strings.Split(mm.View().Content, "\n")
+		if len(lines) > h {
+			t.Errorf("height %d: レンダリング行数 = %d, want <= %d", h, len(lines), h)
+		}
+		if last := lines[len(lines)-1]; !strings.Contains(last, "not logged in") {
+			t.Errorf("height %d: 最終行がフッタでない: %q", h, last)
+		}
+	}
+}
+
 // 狭い端末でも幅・高さを超えないこと。
 func TestPanesFitNarrowTerminal(t *testing.T) {
 	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
@@ -1227,6 +1292,25 @@ func TestPanesFitNarrowTerminal(t *testing.T) {
 			if w := lipgloss.Width(ln); w > size[0] {
 				t.Errorf("size %v: %d行目が幅を超えている（幅=%d）: %q", size, i, w, ln)
 			}
+		}
+	}
+}
+
+// 件数が入らない幅でも、ペインの名前だけは枠に残ること。どちらのペインを
+// 見ているのか分からなくなるほうが困る。
+func TestPaneTitleDropsCountBeforeName(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 30, Height: 12})
+	m = got.(Model)
+
+	content := ansi.Strip(m.View().Content)
+	if strings.Contains(content, "タスク (1)") {
+		t.Errorf("幅 30 に収まらない件数付きタイトルが出ている:\n%s", content)
+	}
+	for _, name := range []string{"タスク", "GitHub"} {
+		if !strings.Contains(content, "─"+name) {
+			t.Errorf("%s の枠に名前が残っていない:\n%s", name, content)
 		}
 	}
 }
