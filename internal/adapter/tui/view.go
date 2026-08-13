@@ -10,32 +10,39 @@ import (
 	"github.com/k-narusawa/tk/internal/domain"
 )
 
-const help = " [/]:タブ j/k:移動 space:完了 n:追加 enter:開く d:diff a/A:AI r:更新 R:再読込 q:終了"
+const help = " h/l:ペイン j/k:移動 space:完了 n:追加 enter:開く d:diff a/A:AI r:更新 R:再読込 q:終了"
 
-// tabBar は選択中のタブを角括弧で囲む。色を使わないのは、この画面が
-// 枠線以外にスタイルを持っていないため。
-func (m Model) tabBar() string {
-	var b strings.Builder
-	for i, name := range [...]string{"タスク", "GitHub"} {
-		if tabID(i) == m.tab {
-			b.WriteString(" [ " + name + " ]")
-		} else {
-			b.WriteString("  " + name + " ")
-		}
-	}
-	return b.String()
+var paneNames = [paneCount]string{"タスク", "GitHub"}
+
+// layout は端末サイズから各枠の寸法（枠線込み）を決める。View と
+// WindowSizeMsg の両方が同じ値を要るので、計算はここ1箇所に置く。
+type layout struct {
+	left, right        int // 左カラム / 右ペインの幅
+	body               int // 右ペイン、および左カラム全体の高さ
+	focused, collapsed int // 左カラム2枠の高さ（合計 = body）
+}
+
+func newLayout(width, height int) layout {
+	var l layout
+	l.left = max(1, width*40/100)
+	l.right = max(1, width-l.left)
+	// 潰れた枠はタイトル（枠の上辺）と空の1行だけ。box.Height は最小値なので、
+	// 空文字を描いても1行は残る。フォーカス中が残りの高さを全部使う。
+	l.collapsed = 3
+	// フッタ1行を除いた残り全部を本文が使う。下限は両方の枠が枠線として
+	// 成立する高さ。これを割る端末では溢れるので、View が本文を削る。
+	l.body = max(2*l.collapsed, height-1)
+	l.focused = l.body - l.collapsed
+	return l
 }
 
 func (m Model) View() tea.View {
-	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder())
-	left := m.width * 40 / 100
-	right := m.width - left
-	inner := max(1, m.height-5)
+	l := newLayout(m.width, m.height)
 
 	body := lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		box.Width(max(1, left)).Height(inner).Render(m.listView(inner-2)),
-		box.Width(max(1, right)).Height(inner).Render(m.detail.View()),
+		lipgloss.JoinVertical(lipgloss.Left, m.paneView(l, paneTasks), m.paneView(l, paneGitHub)),
+		m.detailView(l),
 	)
 
 	footer := help
@@ -47,14 +54,17 @@ func (m Model) View() tea.View {
 	}
 	// 端末幅に収める。ヘルプは固定 70 桁前後あり、gh の stderr はさらに
 	// 長くなる。溢れると折り返してレイアウトが崩れる。
-	tabs := m.tabBar()
 	if m.width > 0 {
-		clamp := lipgloss.NewStyle().MaxWidth(m.width)
-		footer = clamp.Render(footer)
-		tabs = clamp.Render(tabs)
+		footer = lipgloss.NewStyle().MaxWidth(m.width).Render(footer)
+	}
+	// 枠が2つ縦に並ぶ下限（7行）を割る端末では、本文を削ってでもフッタを
+	// 残す。フッタが押し出されると保存失敗や gh のエラーが見えなくなる。
+	lines := append(strings.Split(body, "\n"), footer)
+	if m.height > 0 && len(lines) > m.height {
+		lines = append(lines[:m.height-1], footer)
 	}
 
-	v := tea.NewView(tabs + "\n" + body + "\n" + footer)
+	v := tea.NewView(strings.Join(lines, "\n"))
 	v.AltScreen = true
 	if m.adding {
 		v.Cursor = m.input.Cursor()
@@ -62,13 +72,82 @@ func (m Model) View() tea.View {
 	return v
 }
 
+// focusColor はフォーカス中の枠の色。ANSI の 2 番を指すので、実際の緑は
+// 端末のテーマに従う。
+var (
+	focusColor = lipgloss.Color("2")
+	paneBorder = lipgloss.RoundedBorder()
+)
+
+// paneView は左カラムの枠を1つ描く。フォーカスしていない側は中身を出さず、
+// 件数だけをタイトルに載せる（中が見えないので、件数が無いと PR が来て
+// いるかどうか分からなくなる）。
+func (m Model) paneView(l layout, p paneID) string {
+	box := lipgloss.NewStyle().Border(paneBorder).Width(l.left)
+	border := lipgloss.NewStyle()
+	body, height := "", l.collapsed
+	if p == m.focus {
+		box = box.BorderForeground(focusColor)
+		border = border.Foreground(focusColor)
+		body, height = m.listView(l.left-2, l.focused-2), l.focused
+	}
+	// 幅が足りないときは件数を落としてでも名前を残す。どちらのペインかが
+	// 分からなくなるほうが困る。
+	return withTitle(box.Height(height).Render(body), border, m.paneTitle(p), paneNames[p])
+}
+
+// detailView は右の詳細ペイン。高さは左カラム2枠の合計と一致する。
+func (m Model) detailView(l layout) string {
+	return lipgloss.NewStyle().Border(paneBorder).Width(l.right).Height(l.body).Render(m.detail.View())
+}
+
+// paneTitle は枠に載せる名前と件数。取得前の GitHub を "(0)" と出すと
+// 「PR なし」と見分けが付かないので、そこだけ伏せる。
+func (m Model) paneTitle(p paneID) string {
+	if p == paneGitHub && !m.prLoaded {
+		return paneNames[p] + " (…)"
+	}
+	return fmt.Sprintf("%s (%d)", paneNames[p], m.itemCount(p))
+}
+
+// withTitle は枠の1行目をタイトル付きの上辺（╭─タスク (4)───╮）に差し替える。
+// lipgloss v2 に枠タイトルの API が無いのでここだけ自前で組む。
+// titles は長いものから順に渡す。収まらなければ次を試し、どれも入らなければ
+// 無題にする。狭い端末で枠が壊れるより無題のほうがまし。
+//
+// 幅は描画済みの箱から測る。Style.Width は下限であって、狭いところでは
+// 指定より広い箱が返ってくるため。
+func withTitle(box string, style lipgloss.Style, titles ...string) string {
+	top, rest, found := strings.Cut(box, "\n")
+	if !found {
+		return box
+	}
+	w := lipgloss.Width(top)
+	if w < 3 {
+		return box // 枠の体をなしていない。触らない
+	}
+
+	title, fill := "", w-3
+	for _, c := range titles {
+		if n := w - 3 - lipgloss.Width(c); n >= 0 {
+			title, fill = c, n
+			break
+		}
+	}
+	line := paneBorder.TopLeft + paneBorder.Top + title + strings.Repeat(paneBorder.Top, fill) + paneBorder.TopRight
+	return style.Render(line) + "\n" + rest
+}
+
 // listView は一覧のうち高さ rows に収まる範囲だけを描画する。box.Height は
 // 最小値であってクランプではないので、全件を無条件に出すと箱が端末を超えて
 // 伸び、フッタが画面外に押し出される（保存失敗などのエラーが見えなくなる）。
 // カーソルが窓の下端を超えたら追従してスクロールする。
-func (m Model) listView(rows int) string {
+// 幅 w を超える行は切り詰める。折り返させると1件が2行になり、同じ理由で
+// 枠が伸びる（PR のタイトルは平気で枠幅を超える）。
+func (m Model) listView(w, rows int) string {
+	clamp := lipgloss.NewStyle().MaxWidth(max(1, w))
 	if len(m.items) == 0 {
-		return m.emptyLabel()
+		return clamp.Render(m.emptyLabel())
 	}
 	rows = max(1, rows)
 	start := 0
@@ -77,29 +156,30 @@ func (m Model) listView(rows int) string {
 	}
 	end := min(len(m.items), start+rows)
 
-	var b strings.Builder
+	// 末尾に改行を付けない。付けると rows 行ぶんの一覧が rows+1 行になり、
+	// 枠が1行ぶん膨らんで下のペインを押し出す。
+	lines := make([]string, 0, end-start)
 	for i := start; i < end; i++ {
-		it := m.items[i]
 		cursor := " "
 		if i == m.cursor {
 			cursor = ">"
 		}
-		b.WriteString(cursor + itemLabel(it) + "\n")
+		lines = append(lines, clamp.Render(cursor+itemLabel(m.items[i])))
 	}
-	return b.String()
+	return strings.Join(lines, "\n")
 }
 
-// emptyLabel は GitHub タブでだけ状態を出す。起動直後は gh の取得が
+// emptyLabel は GitHub ペインでだけ状態を出す。起動直後は gh の取得が
 // 終わるまで必ず空になるので、無表示だと故障と区別できない。
-// タスクタブの空はユーザーが知っている状態なので何も出さない。
+// タスクの空はユーザーが知っている状態なので何も出さない。
 func (m Model) emptyLabel() string {
-	if m.tab != tabGitHub {
+	if m.focus != paneGitHub {
 		return ""
 	}
 	if !m.prLoaded {
-		return "（PR を取得中…）\n"
+		return "（PR を取得中…）"
 	}
-	return "（PR なし）\n"
+	return "（PR なし）"
 }
 
 func itemLabel(it domain.Item) string {
