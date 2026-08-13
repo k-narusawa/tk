@@ -39,6 +39,9 @@ func (m Model) View() tea.View {
 	)
 
 	footer := help
+	if m.refreshing {
+		footer = " 更新中…"
+	}
 	if m.errMsg != "" {
 		footer = " " + m.errMsg
 	}

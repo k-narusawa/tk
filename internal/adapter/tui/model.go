@@ -42,6 +42,11 @@ type Model struct {
 
 	prLoaded bool // Refresh が1度でも完了したか（成否は問わない）
 
+	// refreshing は Refresh が in-flight かどうか。r 連打で複数の Refresh が
+	// 並行して走ると、後に投げた方が先に届くとは限らず、新しい結果を
+	// 古い結果で上書きしうる（到着順の非保証）。in-flight 中は r を無視する。
+	refreshing bool
+
 	width, height int
 }
 
