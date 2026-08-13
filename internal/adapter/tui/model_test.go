@@ -188,7 +188,7 @@ func TestNRejectsWhitespaceOnlyTitle(t *testing.T) {
 }
 
 // 起動直後、最初の WindowSizeMsg が来る前に bubbletea は View() を呼ぶ。
-// このとき width/height は 0 で、right = width-left-4 は負になる。
+// このとき width/height は 0 で、right = width-left は 0 になる。
 func TestViewBeforeWindowSize(t *testing.T) {
 	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
 
@@ -220,6 +220,11 @@ func TestQReturnsQuitCmd(t *testing.T) {
 	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'q', Text: "q"}))
 	if cmd == nil {
 		t.Fatal("q で cmd が nil")
+	}
+	if msg := cmd(); msg == nil {
+		t.Error("q の cmd を実行した結果が nil")
+	} else if _, ok := msg.(tea.QuitMsg); !ok {
+		t.Errorf("q の cmd を実行した結果 = %T, want tea.QuitMsg", msg)
 	}
 }
 
@@ -662,6 +667,36 @@ func TestListScrollsCursorIntoView(t *testing.T) {
 	}
 	if !strings.Contains(mm.View().Content, "item39") {
 		t.Errorf("窓が追従せず、末尾のカーソル行が表示に含まれていない: %q", mm.View().Content)
+	}
+}
+
+// ctrl+d / ctrl+u は詳細ペイン（bubbles/viewport）への半ページ送りを
+// そのまま委譲するだけの1行だが、その委譲自体にテストが無かった。
+func TestCtrlDCtrlUScrollDetailPane(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	m = got.(Model)
+
+	var b strings.Builder
+	for i := 0; i < 100; i++ {
+		fmt.Fprintf(&b, "line%d\n", i)
+	}
+	m.detail.SetContent(b.String())
+	if m.detail.YOffset() != 0 {
+		t.Fatalf("前提が崩れている: YOffset = %d, want 0", m.detail.YOffset())
+	}
+
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'd', Mod: tea.ModCtrl}))
+	m = got.(Model)
+	afterDown := m.detail.YOffset()
+	if afterDown <= 0 {
+		t.Errorf("ctrl+d 後の YOffset = %d, want > 0", afterDown)
+	}
+
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'u', Mod: tea.ModCtrl}))
+	m = got.(Model)
+	if afterUp := m.detail.YOffset(); afterUp >= afterDown {
+		t.Errorf("ctrl+u 後の YOffset = %d, want < %d（ctrl+d 直後）", afterUp, afterDown)
 	}
 }
 

@@ -30,12 +30,7 @@
 
 ### テストの穴
 
-- `TestToggleKeepsStateOnSaveError` は事後状態のみ検証するため、「更新後にロールバック」する別実装でも通る（実コードは save-first で正しい）
-- `Detail` にタスク種の ID / 一覧から消えた PR ID を渡すケースのテストがない
-- `TestQReturnsQuitCmd` / `TestRKeyReturnsRefreshCmd` は `Cmd` を実行せず非 nil のみ検証
-- `Save` のエラー経路（temp 作成 / 書き込み / close / rename の失敗）のテストがない。**プロジェクト最大の掛け金の唯一の未固定部分**なので、1本入れる価値がある
-- `ctrl+d` / `ctrl+u` のスクロールにテストがない
-- `model_test.go:190` のコメントが古い幅計算式（`width-left-4`）を記載している
+- `Save` のエラー経路（temp 作成 / 書き込み / close / rename の失敗）のテストがない。**プロジェクト最大の掛け金の唯一の未固定部分**なので、1本入れる価値がある（#2）
 
 ### 使ってみて気になったら考えること
 
