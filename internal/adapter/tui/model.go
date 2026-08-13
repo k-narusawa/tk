@@ -23,9 +23,17 @@ const (
 	paneCount
 )
 
+// Config は main.go が環境変数から決める設定。文字列が並ぶので、
+// 位置引数だと取り違えてもコンパイルが通ってしまう。
+type Config struct {
+	AICmd     string // $TK_AI_CMD
+	EditorCmd string // $TK_EDITOR / $VISUAL / $EDITOR
+	TasksFile string // $TK_TASKS_FILE
+}
+
 type Model struct {
 	inbox *usecase.Inbox
-	aiCmd string
+	cfg   Config
 
 	items  []domain.Item
 	cursor int
@@ -52,7 +60,7 @@ type Model struct {
 	width, height int
 }
 
-func New(inbox *usecase.Inbox, aiCmd string) Model {
+func New(inbox *usecase.Inbox, cfg Config) Model {
 	ti := textinput.New()
 	ti.Prompt = "> "
 	ti.Placeholder = "新しいタスク"
@@ -60,7 +68,7 @@ func New(inbox *usecase.Inbox, aiCmd string) Model {
 
 	return Model{
 		inbox:      inbox,
-		aiCmd:      aiCmd,
+		cfg:        cfg,
 		items:      inbox.Tasks(),
 		otherItems: inbox.PRs(),
 		detail:     viewport.New(viewport.WithWidth(40), viewport.WithHeight(20)),

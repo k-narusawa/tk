@@ -31,6 +31,17 @@ func aiCommand() string {
 	return "claude"
 }
 
+// editorCommand は詳細メモを書くエディタ。TK_EDITOR を先頭に置くのは
+// 「tk のときだけ別のものを使いたい」逃げ道を残すため。
+func editorCommand() string {
+	for _, k := range []string{"TK_EDITOR", "VISUAL", "EDITOR"} {
+		if c := os.Getenv(k); c != "" {
+			return c
+		}
+	}
+	return "vi"
+}
+
 func run() error {
 	path, err := tasksPath()
 	if err != nil {
@@ -44,7 +55,8 @@ func run() error {
 		return fmt.Errorf("%s を読めない: %w", path, err)
 	}
 
-	_, err = tea.NewProgram(tui.New(inbox, aiCommand())).Run()
+	cfg := tui.Config{AICmd: aiCommand(), EditorCmd: editorCommand(), TasksFile: path}
+	_, err = tea.NewProgram(tui.New(inbox, cfg)).Run()
 	return err
 }
 

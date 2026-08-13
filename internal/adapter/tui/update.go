@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/k-narusawa/tk/internal/adapter/ai"
+	"github.com/k-narusawa/tk/internal/adapter/editor"
 	"github.com/k-narusawa/tk/internal/adapter/gh"
 	"github.com/k-narusawa/tk/internal/domain"
 )
@@ -21,15 +22,39 @@ type detailLoadedMsg struct {
 
 type execDoneMsg struct{ err error }
 
+// editDoneMsg はエディタが閉じたことを伝える。execDoneMsg と分けているのは、
+// エディタの後だけ tasks.md を読み直す必要があるため。
+type editDoneMsg struct{ err error }
+
 // aiExec は選択アイテムを AI CLI に渡す tea.Cmd を作る。tea.ExecProcess で
 // ターミナルを明け渡す必要があるので、ここで包む（ai パッケージは包まない）。
 func (m Model) aiExec(items []domain.Item) tea.Cmd {
-	c, err := ai.Command(m.aiCmd, items)
+	c, err := ai.Command(m.cfg.AICmd, items)
 	if err != nil {
 		return func() tea.Msg { return execDoneMsg{err: err} }
 	}
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return execDoneMsg{err: err}
+	})
+}
+
+// editExec は選択中タスクの行をエディタで開く tea.Cmd を作る。tk は詳細を
+// 書き込まない。編集はエディタに任せ、閉じたら tasks.md を読み直す。
+func (m Model) editExec() tea.Cmd {
+	it, ok := m.selected()
+	if !ok || it.Kind != domain.KindTask {
+		return nil
+	}
+	line, ok := it.ID.TaskLine()
+	if !ok {
+		return nil
+	}
+	c, err := editor.Command(m.cfg.EditorCmd, m.cfg.TasksFile, line)
+	if err != nil {
+		return func() tea.Msg { return editDoneMsg{err: err} }
+	}
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return editDoneMsg{err: err}
 	})
 }
 
@@ -103,6 +128,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errMsg, m.errIsPR = msg.err.Error(), false
 		}
 		return m, nil
+
+	case editDoneMsg:
+		// エディタが異常終了しても保存はされているかもしれないので、
+		// まず読み直してから失敗を伝える。
+		next, cmd := m.reloadTasks()
+		if msg.err != nil {
+			mm := next.(Model)
+			mm.errMsg, mm.errIsPR = msg.err.Error(), false
+			return mm, cmd
+		}
+		return next, cmd
 
 	case tea.KeyPressMsg:
 		if m.adding {
@@ -233,6 +269,9 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.ExecProcess(gh.DiffCommand(it.Repo, it.Number), func(err error) tea.Msg {
 			return execDoneMsg{err: err}
 		})
+
+	case "e":
+		return m, m.editExec()
 
 	case "a":
 		it, ok := m.selected()
