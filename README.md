@@ -21,6 +21,7 @@ tk
 | `j` / `k` | カーソル移動 |
 | `space` | タスクの完了トグル（即 `tasks.md` へ書き戻し。タスクペインのみ） |
 | `n` | 新規タスク追加（タスクペインのみ） |
+| `e` | 選択中のタスクの行を `$EDITOR` で開く（タスクペインのみ）。閉じると `tasks.md` を読み直す |
 | `enter` | PR をブラウザで開く（GitHub ペインのみ） |
 | `d` | `gh pr diff` を表示（GitHub ペインのみ） |
 | `a` / `A` | 選択アイテム / フォーカス中ペイン全体を AI CLI に渡す |
@@ -33,6 +34,23 @@ tk
 |---|---|---|
 | `TK_TASKS_FILE` | `~/tasks.md` | タスクの保存先 |
 | `TK_AI_CMD` | `claude` | `a` / `A` で起動する AI CLI |
+| `TK_EDITOR` | `$VISUAL` → `$EDITOR` → `vi` | `e` で起動するエディタ |
+
+## タスクの詳細
+
+チェックボックス行の直後に続くインデント行が、そのタスクの詳細メモになる。右ペインに表示される。
+
+```markdown
+- [ ] 認証まわりのリファクタ @today
+  - Cookie の SameSite を Lax に
+
+  RFC を読み直すこと
+- [ ] 別のタスク
+```
+
+空行を挟んでも続く。非インデントの行（`## メモ` など）か次のチェックボックス行で終わり。`  - [ ] サブタスク` のようなインデントされたチェックボックスは、詳細ではなく独立したタスクとして扱う。
+
+書くのは `e`（`$EDITOR` が該当行を開く）か、Neovim で `tasks.md` を直接編集する。**tk 自身は詳細を書き込まない。** 行ジャンプの `+N` は vi 系の記法なので、それ以外のエディタでは効かない。
 
 フォーカス中のペインは枠が緑になり、フォーカスしていない側は枠線だけに潰れてタイトルに件数（`GitHub (3)`）が出る。
 
@@ -64,6 +82,7 @@ TK_TASKS_FILE=/tmp/t.md go run .   # 自分の tasks.md を汚さずに試す
 | `internal/adapter/markdown` | `tasks.md` の読み書き（tmp + `os.Rename` で atomic） | |
 | `internal/adapter/gh` | `gh` サブプロセス。`*exec.Cmd` を返すだけで実行しない | |
 | `internal/adapter/ai` | AI CLI 用の一時ファイル生成と `*exec.Cmd` 組み立て | |
+| `internal/adapter/editor` | エディタ起動の `*exec.Cmd` 組み立て。実行しない | |
 | `main.go` | 環境変数読み → DI 配線 → `tea.NewProgram`。唯一全層を知る | |
 
 外部プロセスを `tea.ExecProcess` で包むのは `internal/adapter/tui` の仕事。`internal/adapter/ai` と `internal/adapter/gh` は `*exec.Cmd` を返すだけにしてあるので、TUI を起動せずにコマンド引数をテストできる。
@@ -86,6 +105,7 @@ TK_TASKS_FILE=/tmp/t.md go run .   # 自分の tasks.md を汚さずに試す
 - [docs/superpowers/specs/2026-08-11-tk-design.md](docs/superpowers/specs/2026-08-11-tk-design.md) — 設計。スコープ外にしたものと、その理由
 - [docs/superpowers/specs/2026-08-12-tk-tabs-design.md](docs/superpowers/specs/2026-08-12-tk-tabs-design.md) — タスク / GitHub の分割（当時はタブ）
 - [docs/superpowers/specs/2026-08-13-tk-panes-design.md](docs/superpowers/specs/2026-08-13-tk-panes-design.md) — タブをやめて lazygit 風の上下ペインへ
+- [docs/superpowers/specs/2026-08-13-tk-task-detail-design.md](docs/superpowers/specs/2026-08-13-tk-task-detail-design.md) — タスクの詳細メモ
 - [docs/known-issues.md](docs/known-issues.md) — 既知の課題、設計判断の記録、GitHub issue との対応表
 
 「なぜそうしなかったか」は known-issues に書いてある。設計を変えたくなったらまずそこを読むこと。

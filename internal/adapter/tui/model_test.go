@@ -79,7 +79,7 @@ func newTestModel(t *testing.T, store *fakeStore) Model {
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	return New(inbox, "claude")
+	return New(inbox, Config{AICmd: "claude"})
 }
 
 func TestWindowSizeRendersNonEmptyView(t *testing.T) {
@@ -240,7 +240,7 @@ func TestInitFetchesPRsAsync(t *testing.T) {
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	m := New(inbox, "claude")
+	m := New(inbox, Config{AICmd: "claude"})
 
 	cmd := m.Init()
 	if cmd == nil {
@@ -281,7 +281,7 @@ func TestInitPRFailureKeepsTasksIntact(t *testing.T) {
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	m := New(inbox, "claude")
+	m := New(inbox, Config{AICmd: "claude"})
 
 	msg := m.Init()()
 	loaded, ok := msg.(prLoadedMsg)
@@ -318,7 +318,7 @@ func TestSuccessfulPRRefreshKeepsSaveError(t *testing.T) {
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	m := New(inbox, "claude")
+	m := New(inbox, Config{AICmd: "claude"})
 
 	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace}))
 	m = got.(Model)
@@ -730,7 +730,7 @@ func prModelWith(t *testing.T, store *fakeStore, details *fakeDetails, aiCmd str
 	if err := inbox.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
-	m := New(inbox, aiCmd)
+	m := New(inbox, Config{AICmd: aiCmd})
 	got, _ := m.Update(prLoadedMsg{})
 	m = got.(Model)
 	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'l', Text: "l"}))
@@ -756,7 +756,7 @@ func TestHLKeysMoveFocus(t *testing.T) {
 	if err := inbox.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
-	m := New(inbox, "claude")
+	m := New(inbox, Config{AICmd: "claude"})
 
 	if m.focus != paneTasks {
 		t.Fatalf("起動時の focus = %d, want paneTasks", m.focus)
@@ -821,7 +821,7 @@ func TestCursorIsPerPane(t *testing.T) {
 	if err := inbox.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
-	m := New(inbox, "claude")
+	m := New(inbox, Config{AICmd: "claude"})
 
 	// タスクペインで3行目へ
 	for i := 0; i < 2; i++ {
@@ -872,7 +872,7 @@ func TestPerPaneCursorClampsWhenListShrinks(t *testing.T) {
 	if err := inbox.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
-	m := New(inbox, "claude")
+	m := New(inbox, Config{AICmd: "claude"})
 
 	for i := 0; i < 2; i++ {
 		got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
@@ -926,7 +926,7 @@ func TestFocusMoveKeepsDetailPaneInSync(t *testing.T) {
 	if err := inbox.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
-	m := New(inbox, "claude")
+	m := New(inbox, Config{AICmd: "claude"})
 
 	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = got.(Model)
@@ -997,7 +997,7 @@ func TestAKeyReturnsCmd(t *testing.T) {
 // エラーで返るので、唯一実行して確認できるケース。
 func TestAKeyWithEmptyAICmdSurfacesError(t *testing.T) {
 	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
-	m.aiCmd = ""
+	m.cfg.AICmd = ""
 
 	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'a', Text: "a"}))
 	if cmd == nil {
@@ -1241,7 +1241,7 @@ func TestPaneTitlesShowNameAndCount(t *testing.T) {
 	if err := inbox.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
-	m := New(inbox, "claude")
+	m := New(inbox, Config{AICmd: "claude"})
 	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = got.(Model)
 
@@ -1462,7 +1462,7 @@ func TestGitHubPaneEmptyStates(t *testing.T) {
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	m := New(inbox, "claude")
+	m := New(inbox, Config{AICmd: "claude"})
 
 	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = got.(Model)
@@ -1493,7 +1493,7 @@ func TestGitHubPaneEmptyAfterFetchError(t *testing.T) {
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	m := New(inbox, "claude")
+	m := New(inbox, Config{AICmd: "claude"})
 
 	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = got.(Model)
@@ -1519,7 +1519,7 @@ func TestGitHubPaneFillsWithPRsOnLoad(t *testing.T) {
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	m := New(inbox, "claude")
+	m := New(inbox, Config{AICmd: "claude"})
 
 	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = got.(Model)
@@ -1555,5 +1555,89 @@ func TestTaskPaneEmptyShowsNothing(t *testing.T) {
 	content := m.View().Content
 	if strings.Contains(content, "取得中") || strings.Contains(content, "なし") {
 		t.Errorf("タスクペインの空表示に文言が出ている:\n%s", content)
+	}
+}
+
+func TestEKeyOnTaskReturnsCmd(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+	m.cfg.EditorCmd, m.cfg.TasksFile = "true", "/tmp/tasks.md"
+
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Text: "e"}))
+	if cmd == nil {
+		t.Fatal("タスクで e を押しても cmd が nil")
+	}
+}
+
+// PR には編集する行が無いので、e は何もしない。
+func TestEKeyOnPRReturnsNil(t *testing.T) {
+	m := prModel(t, "claude")
+	m.cfg.EditorCmd, m.cfg.TasksFile = "true", "/tmp/tasks.md"
+
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Text: "e"}))
+	if cmd != nil {
+		t.Error("PR で e を押したのに cmd が nil でない")
+	}
+}
+
+// エディタが指定できないときも、黙って何もしないのではなくエラーを出す。
+func TestEKeyWithEmptyEditorSurfacesError(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+	m.cfg.EditorCmd, m.cfg.TasksFile = "", "/tmp/tasks.md"
+
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Text: "e"}))
+	if cmd == nil {
+		t.Fatal("エディタが空でも cmd が nil であってはならない（エラーを出せない）")
+	}
+	done, ok := cmd().(editDoneMsg)
+	if !ok {
+		t.Fatalf("cmd() が返したのは %T, want editDoneMsg", cmd())
+	}
+	if done.err == nil {
+		t.Error("エディタが空なのに editDoneMsg.err が nil")
+	}
+}
+
+// エディタで書いた詳細を取り込むため、閉じたら必ず読み直す。
+func TestEditDoneReloadsTasks(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	m := newTestModel(t, store)
+	before := store.loadCalls
+
+	store.list = taskList("- [ ] やること\n  エディタで足したメモ\n")
+	got, _ := m.Update(editDoneMsg{})
+	m = got.(Model)
+
+	if store.loadCalls == before {
+		t.Fatal("エディタを閉じても tasks.md を読み直していない")
+	}
+	if m.items[0].Body != "エディタで足したメモ" {
+		t.Errorf("Body = %q, want %q", m.items[0].Body, "エディタで足したメモ")
+	}
+}
+
+// 異常終了でも保存済みかもしれないので読み直し、そのうえでエラーを残す。
+func TestEditDoneWithErrorStillReloadsAndShowsError(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	m := newTestModel(t, store)
+	before := store.loadCalls
+
+	got, _ := m.Update(editDoneMsg{err: errors.New("exit status 1")})
+	m = got.(Model)
+
+	if store.loadCalls == before {
+		t.Error("エディタが異常終了したときに読み直していない")
+	}
+	if m.errMsg == "" {
+		t.Error("エディタのエラーが errMsg に出ていない")
+	}
+}
+
+func TestDetailShowsTaskBody(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n  詳細のメモ\n")})
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = got.(Model)
+
+	if !strings.Contains(m.View().Content, "詳細のメモ") {
+		t.Errorf("詳細ペインにメモが出ていない:\n%s", m.View().Content)
 	}
 }

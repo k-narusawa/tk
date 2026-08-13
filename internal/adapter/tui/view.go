@@ -10,7 +10,7 @@ import (
 	"github.com/k-narusawa/tk/internal/domain"
 )
 
-const help = " h/l:ペイン j/k:移動 space:完了 n:追加 enter:開く d:diff a/A:AI r:更新 R:再読込 q:終了"
+const help = " h/l:ペイン j/k:移動 space:完了 n:追加 e:編集 enter:開く d:diff a/A:AI r:更新 R:再読込 q:終了"
 
 var paneNames = [paneCount]string{"タスク", "GitHub"}
 
@@ -219,6 +219,9 @@ func detailText(it domain.Item, e detailEntry, loaded bool) string {
 			state = "完了"
 		}
 		b.WriteString("state  : " + state + "\n")
+		if it.Body != "" {
+			b.WriteString("\n" + it.Body + "\n")
+		}
 		return b.String()
 	}
 

@@ -1,6 +1,10 @@
 package domain
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 type Kind int
 
@@ -21,6 +25,19 @@ type ID string
 
 func TaskID(lineNo int) ID { return ID(fmt.Sprintf("task:%d", lineNo)) }
 
+// TaskLine は "task:3" から行番号（0 始まり）を取り出す。タスク以外なら false。
+func (id ID) TaskLine() (int, bool) {
+	s, ok := strings.CutPrefix(string(id), "task:")
+	if !ok {
+		return 0, false
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
 func PRID(repo string, number int) ID { return ID(fmt.Sprintf("pr:%s#%d", repo, number)) }
 
 type Item struct {
@@ -31,6 +48,7 @@ type Item struct {
 	// KindTask のみ
 	Done bool
 	Tag  string // "@today" など
+	Body string // チェックボックス行に続くインデント行。段落は "\n\n" で繋がる
 
 	// KindPR のみ
 	Repo   string
