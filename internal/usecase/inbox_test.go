@@ -16,6 +16,7 @@ type fakeStore struct {
 	loadErr  error
 	saveErr  error
 	loadCall int
+	saveCall int
 }
 
 func (f *fakeStore) Load() (domain.TaskList, error) {
@@ -24,6 +25,7 @@ func (f *fakeStore) Load() (domain.TaskList, error) {
 }
 
 func (f *fakeStore) Save(t domain.TaskList) error {
+	f.saveCall++
 	if f.saveErr != nil {
 		return f.saveErr
 	}
@@ -152,6 +154,69 @@ func TestDetailUnknownID(t *testing.T) {
 	}
 }
 
+// タスク種の ID は prItems の中を探しても絶対に見つからないので、
+// 存在しない PR ID と同じ not-found に落ちる。
+func TestDetailTaskKindIDNotFound(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	in := NewInbox(store, &fakePRs{}, &fakeDetails{})
+	if err := in.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	tasks := in.Tasks()
+	if len(tasks) != 1 {
+		t.Fatalf("前提が崩れている: Tasks() = %+v", tasks)
+	}
+
+	if _, err := in.Detail(context.Background(), tasks[0].ID); err == nil {
+		t.Error("タスク種の ID でエラーが返らなかった")
+	}
+}
+
+// droppingPRs は1回目の Fetch だけ review 側に PR を返し、2回目以降は
+// 空を返す。「一覧から消えた PR」を Refresh 経由で再現するためのもの。
+type droppingPRs struct {
+	mu    sync.Mutex
+	calls map[domain.Role]int
+}
+
+func (f *droppingPRs) Fetch(ctx context.Context, role domain.Role) ([]domain.Item, error) {
+	f.mu.Lock()
+	f.calls[role]++
+	n := f.calls[role]
+	f.mu.Unlock()
+
+	if role == domain.RoleReview && n == 1 {
+		return []domain.Item{pr("a/x", 1, domain.RoleReview)}, nil
+	}
+	return nil, nil
+}
+
+// 一覧に一度は載った PR でも、次の Refresh で消えたなら未キャッシュの
+// Detail は not-found に落ちる（キャッシュに残っていた古い詳細を返さない）。
+func TestDetailRemovedPRIDNotFound(t *testing.T) {
+	prs := &droppingPRs{calls: make(map[domain.Role]int)}
+	in := NewInbox(&fakeStore{list: taskList("")}, prs, &fakeDetails{})
+
+	if err := in.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() 1回目 error = %v", err)
+	}
+	id := domain.PRID("a/x", 1)
+	if items := in.PRs(); !containsPR(items, "a/x", 1) {
+		t.Fatalf("前提が崩れている: 1回目後の PRs() = %+v", items)
+	}
+
+	if err := in.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() 2回目 error = %v", err)
+	}
+	if items := in.PRs(); containsPR(items, "a/x", 1) {
+		t.Fatalf("前提が崩れている: 2回目後も一覧に残っている: %+v", items)
+	}
+
+	if _, err := in.Detail(context.Background(), id); err == nil {
+		t.Error("一覧から消えた PR ID でエラーが返らなかった")
+	}
+}
+
 func TestToggleSavesAndUpdates(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
 	in := NewInbox(store, &fakePRs{}, &fakeDetails{})
@@ -176,6 +241,8 @@ func TestToggleSavesAndUpdates(t *testing.T) {
 }
 
 // 保存に失敗したら内部状態を変えない。画面とファイルが食い違わないため。
+// Save が実際に呼ばれたことと状態が変わらないことの両方を主張しないと、
+// 「先に状態を更新して失敗したらロールバックする」別実装でも通ってしまう。
 func TestToggleKeepsStateOnSaveError(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n"), saveErr: errors.New("disk full")}
 	in := NewInbox(store, &fakePRs{}, &fakeDetails{})
@@ -185,6 +252,9 @@ func TestToggleKeepsStateOnSaveError(t *testing.T) {
 
 	if err := in.Toggle(domain.TaskID(0)); err == nil {
 		t.Fatal("Toggle() がエラーを返さなかった")
+	}
+	if store.saveCall != 1 {
+		t.Errorf("Save が %d 回呼ばれた, want 1", store.saveCall)
 	}
 	if tasks := in.Tasks(); tasks[0].Done {
 		t.Error("保存失敗後に Done が true になっている")
