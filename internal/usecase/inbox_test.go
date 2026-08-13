@@ -79,9 +79,9 @@ func TestLoadReadsTasks(t *testing.T) {
 	if err := in.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	items := in.Items()
-	if len(items) != 1 || items[0].Title != "やること" {
-		t.Errorf("Items() = %+v", items)
+	tasks := in.Tasks()
+	if len(tasks) != 1 || tasks[0].Title != "やること" {
+		t.Errorf("Tasks() = %+v", tasks)
 	}
 }
 
@@ -115,8 +115,8 @@ func TestLoadAndRefreshDoNotFetchDetails(t *testing.T) {
 	if prs.calls != 2 {
 		t.Errorf("PRSource が %d 回呼ばれた, want 2", prs.calls)
 	}
-	if len(in.Items()) != 2 {
-		t.Errorf("Items() = %d 件, want 2", len(in.Items()))
+	if len(in.PRs()) != 2 {
+		t.Errorf("PRs() = %d 件, want 2", len(in.PRs()))
 	}
 }
 
@@ -169,9 +169,9 @@ func TestToggleSavesAndUpdates(t *testing.T) {
 		t.Errorf("保存内容 = %q", got)
 	}
 	// 完了済みタスクは末尾に回る
-	items := in.Items()
-	if len(items) != 1 || !items[0].Done {
-		t.Errorf("Items() = %+v, want Done=true", items)
+	tasks := in.Tasks()
+	if len(tasks) != 1 || !tasks[0].Done {
+		t.Errorf("Tasks() = %+v, want Done=true", tasks)
 	}
 }
 
@@ -186,7 +186,7 @@ func TestToggleKeepsStateOnSaveError(t *testing.T) {
 	if err := in.Toggle(domain.TaskID(0)); err == nil {
 		t.Fatal("Toggle() がエラーを返さなかった")
 	}
-	if items := in.Items(); items[0].Done {
+	if tasks := in.Tasks(); tasks[0].Done {
 		t.Error("保存失敗後に Done が true になっている")
 	}
 }
@@ -204,8 +204,8 @@ func TestAddSavesAndUpdates(t *testing.T) {
 	if got := strings.Join(store.saved[0].Render(), "\n"); got != "- [ ] 既存\n- [ ] 新規\n" {
 		t.Errorf("保存内容 = %q", got)
 	}
-	if len(in.Items()) != 2 {
-		t.Errorf("Items() = %d 件, want 2", len(in.Items()))
+	if len(in.Tasks()) != 2 {
+		t.Errorf("Tasks() = %d 件, want 2", len(in.Tasks()))
 	}
 }
 
@@ -260,36 +260,21 @@ func TestRefreshKeepsPreviousPRsOnPartialFailure(t *testing.T) {
 	if err := in.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh() 1回目 error = %v", err)
 	}
-	items := in.Items()
+	items := in.PRs()
 	if !containsPR(items, "a/x", 1) || !containsPR(items, "a/y", 2) {
-		t.Fatalf("1回目後の Items() = %+v", items)
+		t.Fatalf("1回目後の PRs() = %+v", items)
 	}
 
 	if err := in.Refresh(context.Background()); err == nil {
 		t.Fatal("Refresh() 2回目でエラーが返らなかった")
 	}
 
-	items = in.Items()
+	items = in.PRs()
 	if !containsPR(items, "a/x", 1) || !containsPR(items, "a/y", 2) {
 		t.Errorf("部分失敗後に以前の一覧が失われた: %+v", items)
 	}
 	if containsPR(items, "a/z", 3) {
 		t.Errorf("部分失敗なのに新しい review PR が反映されている: %+v", items)
-	}
-}
-
-func TestFind(t *testing.T) {
-	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	in := NewInbox(store, &fakePRs{}, &fakeDetails{})
-	if err := in.Load(); err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-
-	if _, ok := in.Find(domain.TaskID(0)); !ok {
-		t.Error("Find が既存の ID を見つけられなかった")
-	}
-	if _, ok := in.Find(domain.TaskID(99)); ok {
-		t.Error("Find が存在しない ID を見つけた")
 	}
 }
 
@@ -325,17 +310,17 @@ func TestConcurrentAccess(t *testing.T) {
 		}(i)
 	}
 
-	// Concurrent Items and Find calls
+	// Concurrent Tasks and PRs calls
 	for range 5 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = in.Items()
+			_ = in.Tasks()
 		}()
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = in.Find(domain.TaskID(0))
+			_ = in.PRs()
 		}()
 	}
 
@@ -353,5 +338,64 @@ func TestConcurrentAccess(t *testing.T) {
 
 	for err := range errCh {
 		t.Errorf("concurrent access error: %v", err)
+	}
+}
+
+// タブごとに独立した一覧が取れること。Tasks() に PR が、PRs() に
+// タスクが混ざってはいけない。
+func TestTasksAndPRsAreSeparate(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n- [x] 済んだこと\n")}
+	prs := &fakePRs{byRole: map[domain.Role][]domain.Item{
+		domain.RoleReview: {pr("a/x", 1, domain.RoleReview)},
+		domain.RoleMine:   {pr("a/y", 2, domain.RoleMine)},
+	}}
+	in := NewInbox(store, prs, nil)
+	if err := in.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if err := in.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+
+	tasks := in.Tasks()
+	if len(tasks) != 2 {
+		t.Fatalf("Tasks() = %d 件, want 2", len(tasks))
+	}
+	for _, it := range tasks {
+		if it.Kind != domain.KindTask {
+			t.Errorf("Tasks() に PR が混ざっている: %+v", it)
+		}
+	}
+	if tasks[0].Done {
+		t.Errorf("Tasks() の先頭が完了済み: %+v", tasks[0])
+	}
+
+	prItems := in.PRs()
+	if len(prItems) != 2 {
+		t.Fatalf("PRs() = %d 件, want 2", len(prItems))
+	}
+	for _, it := range prItems {
+		if it.Kind != domain.KindPR {
+			t.Errorf("PRs() にタスクが混ざっている: %+v", it)
+		}
+	}
+	if prItems[0].Role != domain.RoleReview {
+		t.Errorf("PRs() の先頭が review でない: %+v", prItems[0])
+	}
+}
+
+// Refresh 前は PRs() が空でも Tasks() は取れること。
+func TestTasksBeforeRefresh(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	in := NewInbox(store, nil, nil)
+	if err := in.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if len(in.Tasks()) != 1 {
+		t.Errorf("Tasks() = %d 件, want 1", len(in.Tasks()))
+	}
+	if len(in.PRs()) != 0 {
+		t.Errorf("Refresh 前の PRs() = %d 件, want 0", len(in.PRs()))
 	}
 }

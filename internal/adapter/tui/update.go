@@ -66,7 +66,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		left := m.width * 40 / 100
 		right := m.width - left
-		inner := max(1, m.height-4)
+		inner := max(1, m.height-5)
 		// 枠線の内側に収める。box.Width/Height は枠を含む寸法なので、
 		// viewport には -2 した値を渡さないと溢れて箱が膨らむ。
 		m.detail.SetWidth(max(1, right-2))
@@ -76,6 +76,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case prLoadedMsg:
+		m.prLoaded = true
 		if msg.err != nil {
 			m.errMsg, m.errIsPR = msg.err.Error(), true
 		} else if m.errIsPR {
@@ -152,6 +153,14 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 
+	case "[":
+		m.switchTab(tabTask)
+		return m, m.detailCmd()
+
+	case "]":
+		m.switchTab(tabGitHub)
+		return m, m.detailCmd()
+
 	case "j", "down":
 		if m.cursor < len(m.items)-1 {
 			m.cursor++
@@ -181,6 +190,9 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.detailCmd()
 
 	case "n":
+		if m.tab != tabTask {
+			return m, nil
+		}
 		m.adding = true
 		return m, m.input.Focus()
 
@@ -193,17 +205,13 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "r":
+		if m.tab == tabTask {
+			return m.reloadTasks()
+		}
 		return m, m.refreshCmd()
 
 	case "R":
-		if err := m.inbox.Load(); err != nil {
-			m.errMsg, m.errIsPR = err.Error(), false
-			return m, nil
-		}
-		m.errMsg, m.errIsPR = "", false
-		m.reload()
-		m.syncDetail()
-		return m, m.detailCmd()
+		return m.reloadTasks()
 
 	case "enter":
 		it, ok := m.selected()
@@ -234,4 +242,20 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.aiExec(m.items)
 	}
 	return m, nil
+}
+
+// reloadTasks は tasks.md を読み直す。外部エディタでの変更を取り込むためのもの。
+func (m Model) reloadTasks() (tea.Model, tea.Cmd) {
+	if err := m.inbox.Load(); err != nil {
+		m.errMsg, m.errIsPR = err.Error(), false
+		return m, nil
+	}
+	// PR 取得のエラーはここでは消さない。tasks.md を読み直しても
+	// PR の状況は変わらないので、消すと直ったように見えてしまう。
+	if !m.errIsPR {
+		m.errMsg = ""
+	}
+	m.reload()
+	m.syncDetail()
+	return m, m.detailCmd()
 }

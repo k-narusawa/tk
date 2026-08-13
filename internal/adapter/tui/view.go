@@ -10,13 +10,27 @@ import (
 	"github.com/k-narusawa/tk/internal/domain"
 )
 
-const help = " j/k:移動 space:完了 n:追加 enter:開く d:diff a/A:AI r:更新 R:再読込 q:終了"
+const help = " [/]:タブ j/k:移動 space:完了 n:追加 enter:開く d:diff a/A:AI r:更新 R:再読込 q:終了"
+
+// tabBar は選択中のタブを角括弧で囲む。色を使わないのは、この画面が
+// 枠線以外にスタイルを持っていないため。
+func (m Model) tabBar() string {
+	var b strings.Builder
+	for i, name := range [...]string{"タスク", "GitHub"} {
+		if tabID(i) == m.tab {
+			b.WriteString(" [ " + name + " ]")
+		} else {
+			b.WriteString("  " + name + " ")
+		}
+	}
+	return b.String()
+}
 
 func (m Model) View() tea.View {
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder())
 	left := m.width * 40 / 100
 	right := m.width - left
-	inner := max(1, m.height-4)
+	inner := max(1, m.height-5)
 
 	body := lipgloss.JoinHorizontal(
 		lipgloss.Top,
@@ -31,13 +45,16 @@ func (m Model) View() tea.View {
 	if m.adding {
 		footer = m.input.View()
 	}
-	// 端末幅に収める。ヘルプは固定 64 桁あり、gh の stderr はさらに長くなる。
-	// 溢れると折り返してレイアウトが崩れる。
+	// 端末幅に収める。ヘルプは固定 70 桁前後あり、gh の stderr はさらに
+	// 長くなる。溢れると折り返してレイアウトが崩れる。
+	tabs := m.tabBar()
 	if m.width > 0 {
-		footer = lipgloss.NewStyle().MaxWidth(m.width).Render(footer)
+		clamp := lipgloss.NewStyle().MaxWidth(m.width)
+		footer = clamp.Render(footer)
+		tabs = clamp.Render(tabs)
 	}
 
-	v := tea.NewView(body + "\n" + footer)
+	v := tea.NewView(tabs + "\n" + body + "\n" + footer)
 	v.AltScreen = true
 	if m.adding {
 		v.Cursor = m.input.Cursor()
@@ -50,6 +67,9 @@ func (m Model) View() tea.View {
 // 伸び、フッタが画面外に押し出される（保存失敗などのエラーが見えなくなる）。
 // カーソルが窓の下端を超えたら追従してスクロールする。
 func (m Model) listView(rows int) string {
+	if len(m.items) == 0 {
+		return m.emptyLabel()
+	}
 	rows = max(1, rows)
 	start := 0
 	if m.cursor >= rows {
@@ -67,6 +87,19 @@ func (m Model) listView(rows int) string {
 		b.WriteString(cursor + itemLabel(it) + "\n")
 	}
 	return b.String()
+}
+
+// emptyLabel は GitHub タブでだけ状態を出す。起動直後は gh の取得が
+// 終わるまで必ず空になるので、無表示だと故障と区別できない。
+// タスクタブの空はユーザーが知っている状態なので何も出さない。
+func (m Model) emptyLabel() string {
+	if m.tab != tabGitHub {
+		return ""
+	}
+	if !m.prLoaded {
+		return "（PR を取得中…）\n"
+	}
+	return "（PR なし）\n"
 }
 
 func itemLabel(it domain.Item) string {
