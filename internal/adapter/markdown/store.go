@@ -53,6 +53,13 @@ func (s *Store) Save(t domain.TaskList) error {
 		tmpDir = filepath.Dir(resolved)
 	}
 
+	// 保存先のディレクトリが無ければ作る。既定の ~/.config/tk/ は新規ユーザーの
+	// マシンにまだ存在せず、無いまま CreateTemp すると最初の1件の追加が
+	// no such file or directory で失敗する。
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		return err
+	}
+
 	f, err := os.CreateTemp(tmpDir, ".tk-*")
 	if err != nil {
 		return err
