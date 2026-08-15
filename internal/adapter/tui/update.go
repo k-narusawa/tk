@@ -45,11 +45,7 @@ func (m Model) editExec() tea.Cmd {
 	if !ok || it.Kind != domain.KindTask {
 		return nil
 	}
-	line, ok := it.ID.TaskLine()
-	if !ok {
-		return nil
-	}
-	c, err := editor.Command(m.cfg.EditorCmd, m.cfg.TasksFile, line)
+	c, err := editor.Command(m.cfg.EditorCmd, m.cfg.TasksFile)
 	if err != nil {
 		return func() tea.Msg { return editDoneMsg{err: err} }
 	}
