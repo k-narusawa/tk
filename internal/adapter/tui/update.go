@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -29,23 +30,27 @@ type editDoneMsg struct{ err error }
 
 // aiExec は選択アイテムを AI CLI に渡す tea.Cmd を作る。tea.ExecProcess で
 // ターミナルを明け渡す必要があるので、ここで包む（ai パッケージは包まない）。
+// 一時ファイルは子プロセスが読み終えた（= 終了した）あとにここで消す。
+// ai パッケージ側では、まだ子プロセスが読んでいる最中かもしれず消せない。
 func (m Model) aiExec(items []domain.Item) tea.Cmd {
-	c, err := ai.Command(m.cfg.AICmd, items)
+	c, path, err := ai.Command(m.cfg.AICmd, items)
 	if err != nil {
 		return func() tea.Msg { return execDoneMsg{err: err} }
 	}
 	return tea.ExecProcess(c, func(err error) tea.Msg {
+		os.Remove(path)
 		return execDoneMsg{err: err}
 	})
 }
 
 // reviewExec は PR を review.md のプロンプト付きで AI CLI に渡す tea.Cmd を作る。
 func (m Model) reviewExec(it domain.Item) tea.Cmd {
-	c, err := ai.ReviewCommand(m.cfg.AICmd, m.cfg.ReviewPromptPath, it)
+	c, path, err := ai.ReviewCommand(m.cfg.AICmd, m.cfg.ReviewPromptPath, it)
 	if err != nil {
 		return func() tea.Msg { return execDoneMsg{err: err} }
 	}
 	return tea.ExecProcess(c, func(err error) tea.Msg {
+		os.Remove(path)
 		return execDoneMsg{err: err}
 	})
 }

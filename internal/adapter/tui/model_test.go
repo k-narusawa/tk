@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -1072,6 +1073,52 @@ func TestAKeyWithEmptyAICmdSurfacesError(t *testing.T) {
 	}
 	if done.err == nil {
 		t.Error("aiCmd が空なのに execDoneMsg.err が nil")
+	}
+}
+
+// aiExec の tea.Cmd は呼んでも execMsg を返すだけで子プロセスは起動しない
+// （実行は tea.Program の内部が行う）。子プロセス終了後に一時ファイルが
+// 消えることを確かめるには、本物の Program を立てて最後まで走らせるしかない。
+type execRunModel struct {
+	cmd tea.Cmd
+	err error
+}
+
+func (m *execRunModel) Init() tea.Cmd { return m.cmd }
+
+func (m *execRunModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if d, ok := msg.(execDoneMsg); ok {
+		m.err = d.err
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m *execRunModel) View() tea.View { return tea.NewView("") }
+
+// #12: 子プロセスが読み終えたあと、渡した一時ファイルが $TMPDIR に残らないこと。
+func TestAiExecRemovesTempFileAfterProcessExits(t *testing.T) {
+	// 他パッケージ（adapter/ai）が同時に書く tk-*.md と競合しないよう隔離する。
+	t.Setenv("TMPDIR", t.TempDir())
+
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+	m.cfg.AICmd = "true" // 即終了する
+
+	rm := &execRunModel{cmd: m.aiExec(m.items)}
+	p := tea.NewProgram(rm, tea.WithInput(nil), tea.WithOutput(io.Discard))
+	if _, err := p.Run(); err != nil {
+		t.Fatalf("p.Run() error = %v", err)
+	}
+	if rm.err != nil {
+		t.Fatalf("execDoneMsg.err = %v", rm.err)
+	}
+
+	left, err := filepath.Glob(filepath.Join(os.TempDir(), "tk-*.md"))
+	if err != nil {
+		t.Fatalf("Glob() error = %v", err)
+	}
+	if len(left) != 0 {
+		t.Errorf("一時ファイルが消えていない: %v", left)
 	}
 }
 

@@ -52,7 +52,7 @@ func TestRenderMultiple(t *testing.T) {
 func TestCommandWritesTempFile(t *testing.T) {
 	items := []domain.Item{{ID: domain.TaskID(0), Kind: domain.KindTask, Title: "やること"}}
 
-	cmd, err := Command("claude", items)
+	cmd, path, err := Command("claude", items)
 	if err != nil {
 		t.Fatalf("Command() error = %v", err)
 	}
@@ -62,8 +62,9 @@ func TestCommandWritesTempFile(t *testing.T) {
 	if len(cmd.Args) != 2 {
 		t.Fatalf("Args = %v, want 2 要素", cmd.Args)
 	}
-
-	path := cmd.Args[1]
+	if path != cmd.Args[1] {
+		t.Errorf("path = %q, want cmd.Args[1] = %q", path, cmd.Args[1])
+	}
 	t.Cleanup(func() { os.Remove(path) })
 
 	data, err := os.ReadFile(path)
@@ -76,7 +77,7 @@ func TestCommandWritesTempFile(t *testing.T) {
 }
 
 func TestCommandEmptyAICmd(t *testing.T) {
-	if _, err := Command("", nil); err == nil {
+	if _, _, err := Command("", nil); err == nil {
 		t.Error("空の AI コマンドでエラーが返らなかった")
 	}
 }
@@ -85,11 +86,11 @@ func TestCommandEmptyAICmd(t *testing.T) {
 func TestCommandWithArgs(t *testing.T) {
 	items := []domain.Item{{ID: domain.TaskID(0), Kind: domain.KindTask, Title: "やること"}}
 
-	cmd, err := Command("claude --print", items)
+	cmd, path, err := Command("claude --print", items)
 	if err != nil {
 		t.Fatalf("Command() error = %v", err)
 	}
-	t.Cleanup(func() { os.Remove(cmd.Args[len(cmd.Args)-1]) })
+	t.Cleanup(func() { os.Remove(path) })
 
 	want := []string{"claude", "--print"}
 	if cmd.Args[0] != want[0] || cmd.Args[1] != want[1] {
@@ -140,16 +141,19 @@ func TestReviewCommandWritesTempFile(t *testing.T) {
 		t.Fatalf("プロンプトを書けない: %v", err)
 	}
 
-	cmd, err := ReviewCommand("claude", promptPath, reviewPR())
+	cmd, path, err := ReviewCommand("claude", promptPath, reviewPR())
 	if err != nil {
 		t.Fatalf("ReviewCommand() error = %v", err)
 	}
 	if len(cmd.Args) != 2 || cmd.Args[0] != "claude" {
 		t.Fatalf("Args = %v, want [claude <path>]", cmd.Args)
 	}
-	t.Cleanup(func() { os.Remove(cmd.Args[1]) })
+	if path != cmd.Args[1] {
+		t.Errorf("path = %q, want cmd.Args[1] = %q", path, cmd.Args[1])
+	}
+	t.Cleanup(func() { os.Remove(path) })
 
-	data, err := os.ReadFile(cmd.Args[1])
+	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("一時ファイルを読めない: %v", err)
 	}
@@ -165,7 +169,7 @@ func TestReviewCommandWritesTempFile(t *testing.T) {
 func TestReviewCommandMissingPromptMentionsPath(t *testing.T) {
 	promptPath := filepath.Join(t.TempDir(), "review.md")
 
-	_, err := ReviewCommand("claude", promptPath, reviewPR())
+	_, _, err := ReviewCommand("claude", promptPath, reviewPR())
 	if err == nil {
 		t.Fatal("プロンプトが無いのにエラーが返らない")
 	}
