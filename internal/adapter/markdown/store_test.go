@@ -286,25 +286,25 @@ func TestSaveErrorPathLeavesOriginalIntact(t *testing.T) {
 	}
 }
 
-	// 新規ユーザーのマシンには ~/.config/tk/ がまだ無い。ディレクトリを作らないと
-	// 最初の1件の追加が no such file or directory で失敗する。
-	func TestSaveCreatesMissingParentDir(t *testing.T) {
-		path := filepath.Join(t.TempDir(), ".config", "tk", "tasks.md")
-		s := NewStore(path)
+// 新規ユーザーのマシンには ~/.config/tk/ がまだ無い。ディレクトリを作らないと
+// 最初の1件の追加が no such file or directory で失敗する。
+func TestSaveCreatesMissingParentDir(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".config", "tk", "tasks.md")
+	s := NewStore(path)
 
-		list, err := s.Load()
-		if err != nil {
-			t.Fatalf("Load() = %v", err)
-		}
-		if err := s.Save(list.Add("最初のタスク")); err != nil {
-			t.Fatalf("Save() = %v", err)
-		}
-
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("保存したファイルが読めない: %v", err)
-		}
-		if !strings.Contains(string(data), "- [ ] 最初のタスク") {
-			t.Errorf("保存内容 = %q, want 追加したタスクを含む", data)
-		}
+	list, err := s.Load()
+	if err != nil {
+		t.Fatalf("Load() = %v", err)
 	}
+	if err := s.Save(list.Add("最初のタスク")); err != nil {
+		t.Fatalf("Save() = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("保存したファイルが読めない: %v", err)
+	}
+	if !strings.Contains(string(data), "- [ ] 最初のタスク") {
+		t.Errorf("保存内容 = %q, want 追加したタスクを含む", data)
+	}
+}
