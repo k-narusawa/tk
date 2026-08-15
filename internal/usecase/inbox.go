@@ -98,6 +98,9 @@ func (i *Inbox) SaveRoutineResult(id domain.ID, body string) error {
 	return i.routines.AppendResult(name, body)
 }
 
+// RoutineListPath は n が開く routines.md のパス。
+func (i *Inbox) RoutineListPath() (string, error) { return i.routines.ListPath() }
+
 // RoutinePath は e が開く指示ファイルのパス。存在しない ID はエラーにする
 // （DetailPath と同じ理由で、空パスを返すとエディタが妙な場所を開く）。
 func (i *Inbox) RoutinePath(id domain.ID) (string, error) {

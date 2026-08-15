@@ -124,16 +124,27 @@ func (m Model) editorCommand() (*exec.Cmd, error) {
 	return editor.Command(m.cfg.EditorCmd, path)
 }
 
-// editExec は選択中タスクの詳細ファイルをエディタで開く tea.Cmd を作る。
-// tk は詳細を書き込まない。編集はエディタに任せ、閉じたら tasks.md を
-// 読み直す（タイトルや完了状態が変わっているかもしれないため）。
-func (m Model) editExec() tea.Cmd {
-	c, err := m.editorCommand()
+// routineListCommand は n が開く routines.md の *exec.Cmd を組み立てる。
+// tk は routines.md に書き戻さないので、監視項目の追加・削除はこのファイルを
+// エディタで直接編集してもらう（タスクのインライン入力とは別の作法になる）。
+func (m Model) routineListCommand() (*exec.Cmd, error) {
+	path, err := m.inbox.RoutineListPath()
+	if err != nil {
+		return nil, err
+	}
+	return editor.Command(m.cfg.EditorCmd, path)
+}
+
+// editExec はエディタを起動する tea.Cmd を作る。tk はこれらのファイルを
+// 書き込まない。編集はエディタに任せ、閉じたら読み直す（タイトルや
+// 監視項目が変わっているかもしれないため）。
+// c が nil なら開く対象が無いということで、何もしない。
+func editExec(c *exec.Cmd, err error) tea.Cmd {
 	if err != nil {
 		return func() tea.Msg { return editDoneMsg{err: err} }
 	}
 	if c == nil {
-		return nil // タスク以外を選んでいる。編集する対象が無い
+		return nil
 	}
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return editDoneMsg{err: err}
@@ -334,6 +345,11 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.detailCmd()
 
 	case "n":
+		// routine の追加は routines.md をエディタで開くだけ。tk が書き戻さ
+		// ない作りを保つため、タスクのようなインライン入力にはしない。
+		if m.focus == paneRoutine {
+			return m, editExec(m.routineListCommand())
+		}
 		if m.focus != paneTasks {
 			return m, nil
 		}
@@ -408,7 +424,7 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.routineExec(it)
 
 	case "e":
-		return m, m.editExec()
+		return m, editExec(m.editorCommand())
 
 	case "a":
 		it, ok := m.selected()

@@ -40,6 +40,18 @@ func (r *RoutineStore) List() ([]domain.Item, error) {
 	return domain.ParseRoutines(strings.Split(string(data), "\n")), nil
 }
 
+// ListPath は n が開く routines.md そのもの。tk はこのファイルに書き戻さない
+// ので、監視項目の追加・削除はエディタで直接やってもらう。
+func (r *RoutineStore) ListPath() (string, error) {
+	// 既定の ~/.config/tk/ は新規ユーザーのマシンにまだ無い。無いままでは
+	// エディタが保存に失敗するので、先に作る。tasks.md と同じ場所なので、
+	// Store.Save と同じく 0o700 で締める。
+	if err := os.MkdirAll(filepath.Dir(r.path), 0o700); err != nil {
+		return "", err
+	}
+	return r.path, nil
+}
+
 // resultName は指示ファイル名の ".md" を ".result.md" に差し替える。
 // 同じ変換規則を通すので、名前に / が入っていても指示と結果が隣に並ぶ。
 func resultName(name string) string {

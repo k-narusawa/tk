@@ -127,3 +127,27 @@ func TestRoutineResultNameDiffersFromDetail(t *testing.T) {
 		t.Fatal("指示と結果が同じファイル名になっている")
 	}
 }
+
+// エディタは親ディレクトリが無いと保存に失敗する。まだ ~/.config/tk/ が
+// 無い新規ユーザーでも n から書き始められること。
+func TestRoutineStoreListPathCreatesDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "まだ無い")
+	path := filepath.Join(dir, "routines.md")
+	s := NewRoutineStore(path)
+
+	got, err := s.ListPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != path {
+		t.Errorf("ListPath() = %q, want %q", got, path)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("親ディレクトリが作られていない: %v", err)
+	}
+	// 中身にタスク名や監視項目名が並ぶので、他ユーザーから ls させない。
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Errorf("パーミッション = %o, want 700", perm)
+	}
+}

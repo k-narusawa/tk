@@ -1895,6 +1895,7 @@ func (f *fakeRoutines) List() ([]domain.Item, error) {
 	return domain.ParseRoutines(lines), nil
 }
 
+func (f *fakeRoutines) ListPath() (string, error)            { return "/routines.md", nil }
 func (f *fakeRoutines) Body(name string) (string, error)     { return f.prompts[name], nil }
 func (f *fakeRoutines) EditPath(name string) (string, error) { return "/routines/" + name + ".md", nil }
 func (f *fakeRoutines) Result(name string) (string, error)   { return f.results[name], nil }
@@ -2217,5 +2218,53 @@ func TestRoutineListErrorFailsLoad(t *testing.T) {
 	in := usecase.NewInbox(&fakeStore{list: taskList("")}, nil, nil, &fakeDetailStore{}, &fakeRoutines{listErr: want})
 	if err := in.Load(); !errors.Is(err, want) {
 		t.Errorf("Load() error = %v, want %v", err, want)
+	}
+}
+
+// routine ペインの n は routines.md をエディタで開く。tk は routines.md に
+// 書き戻さないので、追加はここが入口になる。
+func TestNKeyOnRoutinePaneOpensList(t *testing.T) {
+	m := routineModel(t, &fakeRoutines{names: []string{"golang"}}, Config{EditorCmd: "vi"})
+
+	c, err := m.routineListCommand()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c == nil {
+		t.Fatal("開くファイルが決まらない")
+	}
+	if got := c.Args[len(c.Args)-1]; got != "/routines.md" {
+		t.Errorf("開くパス = %q, want /routines.md", got)
+	}
+
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'n', Text: "n"}))
+	if cmd == nil {
+		t.Error("routine ペインの n が cmd を返さない")
+	}
+}
+
+// routine ペインの n でタスク追加モードに入らないこと。入ると、見えない
+// ペインにタスクが増える。
+func TestNKeyOnRoutinePaneDoesNotAddTask(t *testing.T) {
+	m := routineModel(t, &fakeRoutines{names: []string{"golang"}}, Config{EditorCmd: "vi"})
+
+	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'n', Text: "n"}))
+	if got.(Model).adding {
+		t.Error("routine ペインの n でタスク追加モードに入った")
+	}
+}
+
+// エディタを閉じたら routines.md を読み直すこと。読み直さないと、書いた
+// 監視項目が一覧に出てこない。
+func TestEditorCloseReloadsRoutines(t *testing.T) {
+	r := &fakeRoutines{names: []string{"golang"}}
+	m := routineModel(t, r, Config{EditorCmd: "vi"})
+
+	r.names = append(r.names, "rust")
+	got, _ := m.Update(editDoneMsg{})
+	m = got.(Model)
+
+	if len(m.items) != 2 {
+		t.Errorf("エディタを閉じた後の件数 = %d, want 2", len(m.items))
 	}
 }

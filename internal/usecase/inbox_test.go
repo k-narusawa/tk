@@ -558,6 +558,7 @@ func (f *fakeRoutines) List() ([]domain.Item, error) {
 	return domain.ParseRoutines(lines), nil
 }
 
+func (f *fakeRoutines) ListPath() (string, error)            { return "/routines.md", nil }
 func (f *fakeRoutines) Body(name string) (string, error)     { return f.prompts[name], nil }
 func (f *fakeRoutines) EditPath(name string) (string, error) { return "/routines/" + name + ".md", nil }
 func (f *fakeRoutines) Result(name string) (string, error)   { return f.results[name], nil }

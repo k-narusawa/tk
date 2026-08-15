@@ -26,6 +26,9 @@ type TaskDetailStore interface {
 // tk は一覧に書き戻さない（追加・削除はエディタでやる）ので Save は無い。
 type RoutineSource interface {
 	List() ([]domain.Item, error)
+	// ListPath は n が開く一覧ファイルそのもののパス。親ディレクトリが
+	// 無ければ作る（エディタは親が無いと保存に失敗する）。
+	ListPath() (string, error)
 	// Body は AI に渡す指示。ファイルが無ければ空文字を返し、エラーにしない。
 	Body(name string) (string, error)
 	// EditPath は e が開くパス。親ディレクトリが無ければ作る。
