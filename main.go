@@ -59,7 +59,7 @@ func run() error {
 		return fmt.Errorf("%s を読めない: %w", path, err)
 	}
 
-	cfg := tui.Config{AICmd: aiCommand(), EditorCmd: editorCommand(), TasksFile: path}
+	cfg := tui.Config{AICmd: aiCommand(), EditorCmd: editorCommand()}
 	_, err = tea.NewProgram(tui.New(inbox, cfg)).Run()
 	return err
 }

@@ -28,7 +28,6 @@ const (
 type Config struct {
 	AICmd     string // $TK_AI_CMD
 	EditorCmd string // $TK_EDITOR / $VISUAL / $EDITOR
-	TasksFile string // $TK_TASKS_FILE
 }
 
 type Model struct {

@@ -1582,7 +1582,7 @@ func TestTaskPaneEmptyShowsNothing(t *testing.T) {
 
 func TestEKeyOnTaskReturnsCmd(t *testing.T) {
 	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
-	m.cfg.EditorCmd, m.cfg.TasksFile = "true", "/tmp/tasks.md"
+	m.cfg.EditorCmd = "true"
 
 	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Text: "e"}))
 	if cmd == nil {
@@ -1593,7 +1593,7 @@ func TestEKeyOnTaskReturnsCmd(t *testing.T) {
 // PR には編集する行が無いので、e は何もしない。
 func TestEKeyOnPRReturnsNil(t *testing.T) {
 	m := prModel(t, "claude")
-	m.cfg.EditorCmd, m.cfg.TasksFile = "true", "/tmp/tasks.md"
+	m.cfg.EditorCmd = "true"
 
 	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Text: "e"}))
 	if cmd != nil {
@@ -1604,7 +1604,7 @@ func TestEKeyOnPRReturnsNil(t *testing.T) {
 // エディタが指定できないときも、黙って何もしないのではなくエラーを出す。
 func TestEKeyWithEmptyEditorSurfacesError(t *testing.T) {
 	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
-	m.cfg.EditorCmd, m.cfg.TasksFile = "", "/tmp/tasks.md"
+	m.cfg.EditorCmd = ""
 
 	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Text: "e"}))
 	if cmd == nil {
@@ -1696,7 +1696,7 @@ func TestEKeyOpensDetailFileNotTasksFile(t *testing.T) {
 	if err := inbox.Load(); err != nil {
 		t.Fatal(err)
 	}
-	m := New(inbox, Config{EditorCmd: "vi", TasksFile: "/tmp/tasks.md"})
+	m := New(inbox, Config{EditorCmd: "vi"})
 
 	c, err := m.editorCommand()
 	if err != nil {
@@ -1705,12 +1705,9 @@ func TestEKeyOpensDetailFileNotTasksFile(t *testing.T) {
 	if c == nil {
 		t.Fatal("タスクを選んでいるのに *exec.Cmd が nil")
 	}
-	want := "/tmp/tk-test/やること.md" // fakeDetailStore.EditPath が返すパス
-	if !slices.Contains(c.Args, want) {
-		t.Errorf("Args = %v, want %q を含む", c.Args, want)
-	}
-	if slices.Contains(c.Args, "/tmp/tasks.md") {
-		t.Errorf("tasks.md を開こうとしている: %v", c.Args)
+	want := []string{"vi", "/tmp/tk-test/やること.md"} // fakeDetailStore.EditPath が返すパス
+	if !slices.Equal(c.Args, want) {
+		t.Errorf("Args = %v, want %v", c.Args, want)
 	}
 }
 
