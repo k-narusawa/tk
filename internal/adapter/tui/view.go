@@ -10,9 +10,9 @@ import (
 	"github.com/k-narusawa/tk/internal/domain"
 )
 
-const help = " h/l:ペイン j/k:移動 space:完了 n:追加 e:編集 enter:開く d:diff v:レビュー a/A:AI r:更新 R:再読込 q:終了"
+const help = " h/l:ペイン j/k:移動 space:完了 n:追加 e:編集 enter:開く d:diff v:レビュー x:実行 a/A:AI r:更新 R:再読込 q:終了"
 
-var paneNames = [paneCount]string{"タスク", "GitHub"}
+var paneNames = [paneCount]string{"タスク", "GitHub", "routine"}
 
 // layout は端末サイズから各枠の寸法（枠線込み）を決める。View と
 // WindowSizeMsg の両方が同じ値を要るので、計算はここ1箇所に置く。
@@ -29,19 +29,23 @@ func newLayout(width, height int) layout {
 	// 潰れた枠はタイトル（枠の上辺）と空の1行だけ。box.Height は最小値なので、
 	// 空文字を描いても1行は残る。フォーカス中が残りの高さを全部使う。
 	l.collapsed = 3
-	// フッタ1行を除いた残り全部を本文が使う。下限は両方の枠が枠線として
+	// フッタ1行を除いた残り全部を本文が使う。下限は全部の枠が枠線として
 	// 成立する高さ。これを割る端末では溢れるので、View が本文を削る。
-	l.body = max(2*l.collapsed, height-1)
-	l.focused = l.body - l.collapsed
+	l.body = max(int(paneCount)*l.collapsed, height-1)
+	l.focused = l.body - int(paneCount-1)*l.collapsed
 	return l
 }
 
 func (m Model) View() tea.View {
 	l := newLayout(m.width, m.height)
 
+	boxes := make([]string, 0, paneCount)
+	for p := paneID(0); p < paneCount; p++ {
+		boxes = append(boxes, m.paneView(l, p))
+	}
 	body := lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		lipgloss.JoinVertical(lipgloss.Left, m.paneView(l, paneTasks), m.paneView(l, paneGitHub)),
+		lipgloss.JoinVertical(lipgloss.Left, boxes...),
 		m.detailView(l),
 	)
 
@@ -167,7 +171,7 @@ func (m Model) listView(w, rows int) string {
 		if i == m.cursor {
 			cursor = ">"
 		}
-		lines = append(lines, clamp.Render(cursor+itemLabel(m.items[i])))
+		lines = append(lines, clamp.Render(cursor+m.label(m.items[i])))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -185,9 +189,35 @@ func (m Model) emptyLabel() string {
 	return "（PR なし）"
 }
 
+// label は itemLabel に実行状態を足したもの。routine の印だけは Model が
+// 持つ状態に依存するので、純粋関数の itemLabel から分けている。
+func (m Model) label(it domain.Item) string {
+	if it.Kind == domain.KindRoutine {
+		return routineMark(m.routines[it.ID]) + it.Title
+	}
+	return itemLabel(it)
+}
+
+// routineMark は実行状態の印。未実行は空白を置いて、印の有無で行頭が
+// ずれないようにする。
+func routineMark(s routineState) string {
+	switch s {
+	case routineRunning:
+		return "… "
+	case routineOK:
+		return "✓ "
+	case routineNG:
+		return "✗ "
+	}
+	return "  "
+}
+
 func itemLabel(it domain.Item) string {
 	if it.Kind == domain.KindPR {
 		return fmt.Sprintf("#%d %s", it.Number, it.Title)
+	}
+	if it.Kind == domain.KindRoutine {
+		return it.Title
 	}
 	mark := "□ "
 	if it.Done {
@@ -211,6 +241,8 @@ func (m *Model) syncDetail() {
 			body = "（詳細を読めませんでした: " + err.Error() + "）"
 		}
 		m.detail.SetContent(detailText(it, body, detailEntry{}, false))
+	case it.Kind == domain.KindRoutine:
+		m.detail.SetContent(m.routineText(it))
 	default:
 		e, loaded := m.details[it.ID]
 		m.detail.SetContent(detailText(it, "", e, loaded))
@@ -221,6 +253,45 @@ func (m *Model) syncDetail() {
 	// たまたま新しい内容でも有効な範囲に収まり、見出しが画面外に残ることがある。
 	// 選ぶたびに先頭へ戻す。
 	m.detail.GotoTop()
+}
+
+// routineText は右ペインに出す routine の内容。読みたいのはほぼ常に
+// 実行結果なので、結果を先に、まだ無いときだけ指示を出す。
+func (m Model) routineText(it domain.Item) string {
+	var b strings.Builder
+	b.WriteString(it.Title + "\n\n")
+	b.WriteString("state  : " + routineStateLabel(m.routines[it.ID]) + "\n")
+
+	result, err := m.inbox.RoutineResult(it.ID)
+	if err != nil {
+		fmt.Fprintf(&b, "\n（結果を読めませんでした: %s）\n", err)
+		return b.String()
+	}
+	if result != "" {
+		b.WriteString("\n" + strings.TrimRight(result, "\n") + "\n")
+		return b.String()
+	}
+
+	prompt, err := m.inbox.RoutinePrompt(it.ID)
+	if err != nil || strings.TrimSpace(prompt) == "" {
+		// 指示が無ければ x を押しても走らない。ここが唯一の案内になる。
+		b.WriteString("\n（指示が空です。e で書いてから x で実行してください）\n")
+		return b.String()
+	}
+	b.WriteString("\n## 指示\n\n" + strings.TrimRight(prompt, "\n") + "\n")
+	return b.String()
+}
+
+func routineStateLabel(s routineState) string {
+	switch s {
+	case routineRunning:
+		return "実行中"
+	case routineOK:
+		return "完了"
+	case routineNG:
+		return "失敗"
+	}
+	return "未実行"
 }
 
 func detailText(it domain.Item, body string, e detailEntry, loaded bool) string {

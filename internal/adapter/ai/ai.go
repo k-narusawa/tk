@@ -15,6 +15,10 @@ func Render(items []domain.Item) string {
 	var b strings.Builder
 	b.WriteString("# tk インボックス\n\n")
 	for _, it := range items {
+		if it.Kind == domain.KindRoutine {
+			fmt.Fprintf(&b, "- routine: %s\n", it.Title)
+			continue
+		}
 		if it.Kind == domain.KindPR {
 			fmt.Fprintf(&b, "- PR #%d %s\n", it.Number, it.Title)
 			fmt.Fprintf(&b, "  - repo: %s\n", it.Repo)
@@ -64,6 +68,28 @@ func ReviewCommand(aiCmd, promptPath string, it domain.Item) (*exec.Cmd, error) 
 		return nil, fmt.Errorf("レビュー用プロンプトを読めない（%s に置く）: %w", promptPath, err)
 	}
 	return command(aiCmd, renderReview(string(prompt), it))
+}
+
+// RoutineCommand は routine の指示を非対話で回す *exec.Cmd を返す。
+// Command と違って一時ファイルを作らず標準入力に流し込むのは、非対話 CLI
+// （claude -p 等）がプロンプトを stdin から受け取るのが素直で、引数長の
+// 上限とクォート事故も避けられるため。
+//
+// tea.ExecProcess では包まない。TUI を明け渡さずに裏で走らせるので、
+// 呼び出し側（adapter/tui）が tea.Cmd の中で Output() を待つ。
+func RoutineCommand(routineCmd, prompt string) (*exec.Cmd, error) {
+	fields := strings.Fields(routineCmd)
+	if len(fields) == 0 {
+		return nil, errors.New("TK_ROUTINE_CMD が空")
+	}
+	// 指示が無いまま走らせても AI は何も調べられない。実行してから
+	// 空の結果を追記するより、押した時点で理由を出すほうが早い。
+	if strings.TrimSpace(prompt) == "" {
+		return nil, errors.New("指示が空。e で指示ファイルを書いてください")
+	}
+	c := exec.Command(fields[0], fields[1:]...)
+	c.Stdin = strings.NewReader(prompt)
+	return c, nil
 }
 
 func command(aiCmd, body string) (*exec.Cmd, error) {

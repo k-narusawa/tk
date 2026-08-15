@@ -37,6 +37,17 @@ func aiCommand() string {
 
 // editorCommand は詳細メモを書くエディタ。TK_EDITOR を先頭に置くのは
 // 「tk のときだけ別のものを使いたい」逃げ道を残すため。
+// routineCommand は routine を裏で回す非対話 CLI。TK_AI_CMD と分けるのは、
+// あちらが対話起動（画面を明け渡して人が読む）なのに対し、こちらは終了を
+// 待って標準出力を拾う必要があるため。既定を claude -p にしておくが、
+// 課金体系が変わったら環境変数だけで他の CLI に乗り換えられる。
+func routineCommand() string {
+	if c := os.Getenv("TK_ROUTINE_CMD"); c != "" {
+		return c
+	}
+	return "claude -p"
+}
+
 func editorCommand() string {
 	for _, k := range []string{"TK_EDITOR", "VISUAL", "EDITOR"} {
 		if c := os.Getenv(k); c != "" {
@@ -52,7 +63,17 @@ func run() error {
 		return err
 	}
 
-	inbox := usecase.NewInbox(markdown.NewStore(path), gh.NewPRSource(), gh.NewDetailSource(), markdown.NewDetailStore(path))
+	// routines.md は tasks.md の隣。専用の環境変数を足さなくても
+	// TK_TASKS_FILE を移せば一緒に付いてくる（review.md と同じ導出）。
+	routinesPath := filepath.Join(filepath.Dir(path), "routines.md")
+
+	inbox := usecase.NewInbox(
+		markdown.NewStore(path),
+		gh.NewPRSource(),
+		gh.NewDetailSource(),
+		markdown.NewDetailStore(path),
+		markdown.NewRoutineStore(routinesPath),
+	)
 	// tasks.md が読めないなら起動を中止する。空リストで起動すると、
 	// 書き戻し時に既存の内容を消しかねない。
 	if err := inbox.Load(); err != nil {
@@ -60,8 +81,9 @@ func run() error {
 	}
 
 	cfg := tui.Config{
-		AICmd:     aiCommand(),
-		EditorCmd: editorCommand(),
+		AICmd:      aiCommand(),
+		RoutineCmd: routineCommand(),
+		EditorCmd:  editorCommand(),
 		// tasks.md と同じディレクトリに置く。専用の環境変数を足さなくても
 		// TK_TASKS_FILE を移せば一緒に付いてくる。
 		ReviewPromptPath: filepath.Join(filepath.Dir(path), "review.md"),

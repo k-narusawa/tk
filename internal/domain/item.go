@@ -7,6 +7,7 @@ type Kind int
 const (
 	KindTask Kind = iota
 	KindPR
+	KindRoutine
 )
 
 type Role string
@@ -16,12 +17,16 @@ const (
 	RoleMine   Role = "mine"   // 自分が author
 )
 
-// ID は "task:3" / "pr:app/payment#412" の形。
+// ID は "task:3" / "pr:app/payment#412" / "routine:golang のリリース" の形。
 type ID string
 
 func TaskID(lineNo int) ID { return ID(fmt.Sprintf("task:%d", lineNo)) }
 
 func PRID(repo string, number int) ID { return ID(fmt.Sprintf("pr:%s#%d", repo, number)) }
+
+// RoutineID は名前をそのまま使う。行番号を使うタスクと違い、routines.md の
+// 行が入れ替わっても実行状態と結果ファイルが迷子にならないため。
+func RoutineID(name string) ID { return ID("routine:" + name) }
 
 type Item struct {
 	ID    ID

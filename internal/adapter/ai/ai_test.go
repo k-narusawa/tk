@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -171,5 +172,60 @@ func TestReviewCommandMissingPromptMentionsPath(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), promptPath) {
 		t.Errorf("エラーにパスが含まれない: %v", err)
+	}
+}
+
+func TestRoutineCommand(t *testing.T) {
+	c, err := RoutineCommand("claude -p", "golang の最新リリースを調べて")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Path == "" || filepath.Base(c.Path) != "claude" {
+		t.Errorf("Path = %q, want claude", c.Path)
+	}
+	if len(c.Args) != 2 || c.Args[1] != "-p" {
+		t.Errorf("Args = %v, want [claude -p]", c.Args)
+	}
+
+	// 指示は引数ではなく標準入力に流す。引数長の上限とクォート事故を避けるため。
+	if c.Stdin == nil {
+		t.Fatal("Stdin が設定されていない")
+	}
+	b, err := io.ReadAll(c.Stdin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "golang の最新リリースを調べて" {
+		t.Errorf("Stdin = %q", b)
+	}
+	for _, a := range c.Args {
+		if strings.Contains(a, "調べて") {
+			t.Errorf("指示が引数に混ざっている: %v", c.Args)
+		}
+	}
+}
+
+func TestRoutineCommandEmpty(t *testing.T) {
+	if _, err := RoutineCommand("   ", "本文"); err == nil {
+		t.Error("TK_ROUTINE_CMD が空でもエラーにならない")
+	}
+}
+
+// 指示が空のまま走らせると AI が何をすればいいか分からないまま課金される。
+func TestRoutineCommandEmptyPrompt(t *testing.T) {
+	if _, err := RoutineCommand("claude -p", "  \n "); err == nil {
+		t.Error("指示が空でもエラーにならない")
+	}
+}
+
+// a / A で routine を渡したとき、チェックボックス付きのタスクとして
+// 描かれると「未完了の作業」に見えてしまう。
+func TestRenderRoutine(t *testing.T) {
+	got := Render([]domain.Item{{ID: domain.RoutineID("golang"), Kind: domain.KindRoutine, Title: "golang"}})
+	if !strings.Contains(got, "routine: golang") {
+		t.Errorf("Render() = %q", got)
+	}
+	if strings.Contains(got, "[ ]") {
+		t.Errorf("routine がチェックボックスで描かれている:\n%s", got)
 	}
 }

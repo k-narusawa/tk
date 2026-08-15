@@ -99,7 +99,7 @@ func prPair() *fakePRs {
 
 func newTestModel(t *testing.T, store *fakeStore) Model {
 	t.Helper()
-	inbox := usecase.NewInbox(store, nil, nil, &fakeDetailStore{})
+	inbox := usecase.NewInbox(store, nil, nil, &fakeDetailStore{}, &fakeRoutines{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -260,7 +260,7 @@ func TestInitFetchesPRsAsync(t *testing.T) {
 		domain.RoleReview: {ID: domain.PRID("a/x", 1), Kind: domain.KindPR, Repo: "a/x", Number: 1, Role: domain.RoleReview},
 		domain.RoleMine:   {ID: domain.PRID("a/y", 2), Kind: domain.KindPR, Repo: "a/y", Number: 2, Role: domain.RoleMine},
 	}}
-	inbox := usecase.NewInbox(store, prs, nil, &fakeDetailStore{})
+	inbox := usecase.NewInbox(store, prs, nil, &fakeDetailStore{}, &fakeRoutines{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -301,7 +301,7 @@ func TestInitFetchesPRsAsync(t *testing.T) {
 func TestInitPRFailureKeepsTasksIntact(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
 	wantErr := errors.New("gh: not logged in")
-	inbox := usecase.NewInbox(store, &fakePRs{err: wantErr}, nil, &fakeDetailStore{})
+	inbox := usecase.NewInbox(store, &fakePRs{err: wantErr}, nil, &fakeDetailStore{}, &fakeRoutines{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -338,7 +338,7 @@ func TestInitPRFailureKeepsTasksIntact(t *testing.T) {
 // 別々の原因のエラーを取得成功が一括で握り潰す、が今回の実バグ。
 func TestSuccessfulPRRefreshKeepsSaveError(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n"), saveErr: errors.New("disk full")}
-	inbox := usecase.NewInbox(store, &fakePRs{}, nil, &fakeDetailStore{})
+	inbox := usecase.NewInbox(store, &fakePRs{}, nil, &fakeDetailStore{}, &fakeRoutines{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -635,7 +635,10 @@ func TestPanesHaveEqualHeight(t *testing.T) {
 			}
 
 			l := newLayout(size[0], size[1])
-			left := lipgloss.Height(mm.paneView(l, paneTasks)) + lipgloss.Height(mm.paneView(l, paneGitHub))
+			left := 0
+			for p := paneID(0); p < paneCount; p++ {
+				left += lipgloss.Height(mm.paneView(l, p))
+			}
 			right := lipgloss.Height(mm.detailView(l))
 			if left != right {
 				t.Errorf("size %v focus=%d: 左カラム %d 行, 右ペイン %d 行", size, focus, left, right)
@@ -735,7 +738,7 @@ func TestSyncDetailResetsScrollOnTaskChange(t *testing.T) {
 	}
 	store := &fakeStore{list: taskList("- [ ] 一\n- [ ] 二\n")}
 	details := &fakeDetailStore{bodies: map[string]string{"一": body.String(), "二": body.String()}}
-	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details)
+	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details, &fakeRoutines{})
 	if err := inbox.Load(); err != nil {
 		t.Fatal(err)
 	}
@@ -784,7 +787,7 @@ func TestLongErrorInFooterDoesNotOverflow(t *testing.T) {
 // のは prLoadedMsg なので、実際の起動と同じくそれも流す。
 func prModelWith(t *testing.T, store *fakeStore, details *fakeDetails, aiCmd string) Model {
 	t.Helper()
-	inbox := usecase.NewInbox(store, prPair(), details, &fakeDetailStore{})
+	inbox := usecase.NewInbox(store, prPair(), details, &fakeDetailStore{}, &fakeRoutines{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -810,7 +813,7 @@ func prModel(t *testing.T, aiCmd string) Model {
 
 func TestHLKeysMoveFocus(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{})
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{}, &fakeRoutines{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -852,30 +855,52 @@ func TestHLKeysMoveFocus(t *testing.T) {
 	}
 }
 
-// ペインは2つなので h も l も「もう一方」へ移る。押し続けても
-// どちらかに張り付かないこと。
+// h も l も端で止まらず巡回すること。押し続けてどこかに張り付くと、
+// 「戻れなくなった」ように見える。
 func TestPaneFocusWrapsWithBothKeys(t *testing.T) {
 	for _, key := range []rune{'h', 'l'} {
 		m := newTestModel(t, &fakeStore{list: taskList("- [ ] 一\n")})
 
-		got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: key, Text: string(key)}))
-		m = got.(Model)
-		if m.focus != paneGitHub {
-			t.Errorf("%c の後の focus = %d, want paneGitHub", key, m.focus)
+		seen := map[paneID]bool{m.focus: true}
+		for i := 0; i < int(paneCount)-1; i++ {
+			got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: key, Text: string(key)}))
+			m = got.(Model)
+			if seen[m.focus] {
+				t.Fatalf("%c を %d 回押して focus=%d に戻った（全ペインを回れていない）", key, i+1, m.focus)
+			}
+			seen[m.focus] = true
 		}
 
-		got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: key, Text: string(key)}))
+		got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: key, Text: string(key)}))
 		m = got.(Model)
 		if m.focus != paneTasks {
-			t.Errorf("%c を2回押した後の focus = %d, want paneTasks", key, m.focus)
+			t.Errorf("%c を %d 回押した後の focus = %d, want paneTasks", key, paneCount, m.focus)
 		}
+	}
+}
+
+// l は次のペイン、h は前のペイン。3つ並ぶと、両方が同じ向きに回るのでは
+// 戻るのに押し直しが要る。
+func TestHAndLMoveOppositeDirections(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] 一\n")})
+
+	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'h', Text: "h"}))
+	m = got.(Model)
+	if m.focus != paneCount-1 {
+		t.Errorf("先頭で h を押した後の focus = %d, want %d（末尾へ戻る）", m.focus, paneCount-1)
+	}
+
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'l', Text: "l"}))
+	m = got.(Model)
+	if m.focus != paneTasks {
+		t.Errorf("h の直後に l を押した focus = %d, want paneTasks（元に戻る）", m.focus)
 	}
 }
 
 // カーソル位置はペインごとに保たれる。往復しても元の行に戻ること。
 func TestCursorIsPerPane(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] 一\n- [ ] 二\n- [ ] 三\n")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{})
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{}, &fakeRoutines{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -926,7 +951,7 @@ func TestCursorIsPerPane(t *testing.T) {
 // 落ちないこと（PR が減る、タスクが消えるのは普通に起きる）。
 func TestPerPaneCursorClampsWhenListShrinks(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] 一\n- [ ] 二\n- [ ] 三\n")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{})
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{}, &fakeRoutines{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -980,7 +1005,7 @@ func TestShiftAScopeIsFocusedPane(t *testing.T) {
 // 追従しないと、タスクの詳細を出したまま PR 一覧を見ることになる。
 func TestFocusMoveKeepsDetailPaneInSync(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{})
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{}, &fakeRoutines{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -1295,7 +1320,7 @@ func TestShiftRReloadsTasksFromGitHubPane(t *testing.T) {
 // 件数が出ないと PR が来ているかどうか分からなくなる。
 func TestPaneTitlesShowNameAndCount(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{})
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{}, &fakeRoutines{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -1519,7 +1544,7 @@ func TestNKeyStillWorksOnTaskPane(t *testing.T) {
 // 故障と区別できないので、取得中と0件を書き分ける。
 func TestGitHubPaneEmptyStates(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	inbox := usecase.NewInbox(store, &fakePRs{}, nil, &fakeDetailStore{})
+	inbox := usecase.NewInbox(store, &fakePRs{}, nil, &fakeDetailStore{}, &fakeRoutines{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -1550,7 +1575,7 @@ func TestGitHubPaneEmptyStates(t *testing.T) {
 // 一覧は「なし」で矛盾しない。
 func TestGitHubPaneEmptyAfterFetchError(t *testing.T) {
 	store := &fakeStore{list: taskList("")}
-	inbox := usecase.NewInbox(store, &fakePRs{err: errors.New("gh: not logged in")}, nil, &fakeDetailStore{})
+	inbox := usecase.NewInbox(store, &fakePRs{err: errors.New("gh: not logged in")}, nil, &fakeDetailStore{}, &fakeRoutines{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -1576,7 +1601,7 @@ func TestGitHubPaneEmptyAfterFetchError(t *testing.T) {
 // 右ペインの表示と衝突しない「PR なし」「PR を取得中」に絞る。
 func TestGitHubPaneFillsWithPRsOnLoad(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{})
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{}, &fakeRoutines{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -1692,7 +1717,7 @@ func TestEditDoneWithErrorStillReloadsAndShowsError(t *testing.T) {
 func TestDetailShowsTaskBody(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
 	details := &fakeDetailStore{bodies: map[string]string{"やること": "詳細のメモ"}}
-	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details)
+	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details, &fakeRoutines{})
 	if err := inbox.Load(); err != nil {
 		t.Fatal(err)
 	}
@@ -1711,7 +1736,7 @@ func TestDetailShowsTaskBody(t *testing.T) {
 func TestDetailShowsReadError(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
 	details := &fakeDetailStore{err: errors.New("permission denied")}
-	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details)
+	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details, &fakeRoutines{})
 	if err := inbox.Load(); err != nil {
 		t.Fatal(err)
 	}
@@ -1732,7 +1757,7 @@ func TestLongLineInDetailBodyIsSoftWrapped(t *testing.T) {
 	line := strings.Repeat("a", 200) + "END"
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
 	details := &fakeDetailStore{bodies: map[string]string{"やること": line + "\n"}}
-	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details)
+	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details, &fakeRoutines{})
 	if err := inbox.Load(); err != nil {
 		t.Fatal(err)
 	}
@@ -1751,7 +1776,7 @@ func TestLongLineInDetailBodyIsSoftWrapped(t *testing.T) {
 // いるか分からず、tasks.md に戻る退行を検出できない。
 func TestEKeyOpensDetailFileNotTasksFile(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, &fakeDetailStore{})
+	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, &fakeDetailStore{}, &fakeRoutines{})
 	if err := inbox.Load(); err != nil {
 		t.Fatal(err)
 	}
@@ -1774,7 +1799,7 @@ func TestEKeyOpensDetailFileNotTasksFile(t *testing.T) {
 func TestEKeyWithDetailPathErrorSurfacesError(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
 	details := &fakeDetailStore{err: errors.New("mkdir: read-only file system")}
-	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details)
+	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details, &fakeRoutines{})
 	if err := inbox.Load(); err != nil {
 		t.Fatal(err)
 	}
@@ -1848,4 +1873,349 @@ func writeReviewPrompt(t *testing.T, body string) string {
 		t.Fatalf("プロンプトを書けない: %v", err)
 	}
 	return path
+}
+
+// fakeRoutines は routines.md と routines/ 配下のインメモリ版。
+type fakeRoutines struct {
+	names     []string
+	prompts   map[string]string
+	results   map[string]string
+	listErr   error
+	appendErr error
+}
+
+func (f *fakeRoutines) List() ([]domain.Item, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	lines := make([]string, 0, len(f.names))
+	for _, n := range f.names {
+		lines = append(lines, "- "+n)
+	}
+	return domain.ParseRoutines(lines), nil
+}
+
+func (f *fakeRoutines) Body(name string) (string, error)     { return f.prompts[name], nil }
+func (f *fakeRoutines) EditPath(name string) (string, error) { return "/routines/" + name + ".md", nil }
+func (f *fakeRoutines) Result(name string) (string, error)   { return f.results[name], nil }
+
+func (f *fakeRoutines) AppendResult(name, body string) error {
+	if f.appendErr != nil {
+		return f.appendErr
+	}
+	if f.results == nil {
+		f.results = map[string]string{}
+	}
+	f.results[name] += body
+	return nil
+}
+
+// routineModel は routine ペインにフォーカスを合わせた Model を作る。
+func routineModel(t *testing.T, r *fakeRoutines, cfg Config) Model {
+	t.Helper()
+	inbox := usecase.NewInbox(&fakeStore{list: taskList("")}, nil, nil, &fakeDetailStore{}, r)
+	if err := inbox.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	m := New(inbox, cfg)
+	for m.focus != paneRoutine {
+		got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'l', Text: "l"}))
+		m = got.(Model)
+	}
+	return m
+}
+
+func TestRoutinePaneListsRoutines(t *testing.T) {
+	m := routineModel(t, &fakeRoutines{names: []string{"golang のリリース", "rust のリリース"}}, Config{})
+	if len(m.items) != 2 {
+		t.Fatalf("routine ペインの件数 = %d, want 2", len(m.items))
+	}
+	if m.items[0].Kind != domain.KindRoutine {
+		t.Errorf("Kind = %v, want KindRoutine", m.items[0].Kind)
+	}
+	if m.itemCount(paneRoutine) != 2 {
+		t.Errorf("itemCount(paneRoutine) = %d, want 2", m.itemCount(paneRoutine))
+	}
+}
+
+// x は routine を裏で走らせる。tea.ExecProcess ではないので TUI は畳まれず、
+// 押した直後に実行中として見えること。
+func TestXKeyStartsRoutine(t *testing.T) {
+	r := &fakeRoutines{names: []string{"golang"}, prompts: map[string]string{"golang": "調べて"}}
+	m := routineModel(t, r, Config{RoutineCmd: "true"})
+
+	got, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
+	m = got.(Model)
+	if cmd == nil {
+		t.Fatal("x を押しても cmd が nil")
+	}
+	if m.routines[domain.RoutineID("golang")] != routineRunning {
+		t.Errorf("state = %v, want routineRunning", m.routines[domain.RoutineID("golang")])
+	}
+	if m.runningRoutines() != 1 {
+		t.Errorf("runningRoutines() = %d, want 1", m.runningRoutines())
+	}
+}
+
+// 実行中にもう一度 x を押しても二重起動しないこと。結果ファイルへの
+// 追記が混ざるうえ、同じことを2回聞くだけで得るものが無い。
+func TestXKeyIgnoredWhileRunning(t *testing.T) {
+	r := &fakeRoutines{names: []string{"golang"}, prompts: map[string]string{"golang": "調べて"}}
+	m := routineModel(t, r, Config{RoutineCmd: "true"})
+
+	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
+	m = got.(Model)
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
+	if cmd != nil {
+		t.Error("実行中の routine で x が2回目の実行を始めている")
+	}
+}
+
+func TestXKeyOnTaskReturnsNil(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
+	if cmd != nil {
+		t.Error("タスクで x を押したのに cmd が nil でない")
+	}
+}
+
+// 実行結果は結果ファイルへ追記され、状態が ✓ になること。
+func TestRoutineExecAppendsResult(t *testing.T) {
+	r := &fakeRoutines{names: []string{"golang"}, prompts: map[string]string{"golang": "調べて"}}
+	m := routineModel(t, r, Config{RoutineCmd: "echo 1.24 が出ています"})
+
+	got, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
+	m = got.(Model)
+
+	msg := cmd().(routineDoneMsg)
+	if msg.err != nil {
+		t.Fatalf("実行が失敗した: %v", msg.err)
+	}
+	if !strings.Contains(r.results["golang"], "1.24 が出ています") {
+		t.Errorf("結果が追記されていない: %q", r.results["golang"])
+	}
+
+	got, _ = m.Update(msg)
+	m = got.(Model)
+	if m.routines[msg.id] != routineOK {
+		t.Errorf("state = %v, want routineOK", m.routines[msg.id])
+	}
+	if m.runningRoutines() != 0 {
+		t.Error("完了後も実行中として数えている")
+	}
+}
+
+// failScript は stderr に1行吐いて失敗する実行可能ファイルを作る。
+// TK_ROUTINE_CMD は strings.Fields で分割されるためクォートが効かず、
+// "sh -c '...'" と書くとシェルのクォートエラーになる（それでも exit しては
+// くれるので、テストが別の理由で通ってしまう）。
+func failScript(t *testing.T, stderr string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "fail.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\necho "+stderr+" >&2\nexit 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// 失敗は握り潰さない。✗ を出したうえで、理由をフッタに出すこと。
+func TestRoutineExecFailureShowsReason(t *testing.T) {
+	r := &fakeRoutines{names: []string{"golang"}, prompts: map[string]string{"golang": "調べて"}}
+	m := routineModel(t, r, Config{RoutineCmd: failScript(t, "not_logged_in")})
+
+	got, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
+	m = got.(Model)
+
+	msg := cmd().(routineDoneMsg)
+	if msg.err == nil {
+		t.Fatal("失敗したのに err が nil")
+	}
+
+	got, _ = m.Update(msg)
+	m = got.(Model)
+	if m.routines[msg.id] != routineNG {
+		t.Errorf("state = %v, want routineNG", m.routines[msg.id])
+	}
+	// stderr にしか出ない失敗理由を拾わないと「✗ だが理由が分からない」になる。
+	if !strings.Contains(m.errMsg, "not_logged_in") {
+		t.Errorf("errMsg に stderr の内容が無い: %q", m.errMsg)
+	}
+	if m.errIsPR {
+		t.Error("routine の失敗が PR 由来のエラー扱いになっている")
+	}
+}
+
+// 指示が空なら実行前に止める。空のまま走らせても AI は何も調べられない。
+func TestRoutineExecEmptyPrompt(t *testing.T) {
+	r := &fakeRoutines{names: []string{"golang"}}
+	m := routineModel(t, r, Config{RoutineCmd: "true"})
+
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
+	msg := cmd().(routineDoneMsg)
+	if msg.err == nil {
+		t.Fatal("指示が空でも実行されている")
+	}
+	if len(r.results) != 0 {
+		t.Errorf("空の結果が追記されている: %v", r.results)
+	}
+}
+
+// 実行中の q は一度だけ握り潰す。tk が終わると子プロセスも道連れになるので、
+// 気づかずに消してしまうのを防ぐ。
+func TestQuitWarnsWhileRoutineRunning(t *testing.T) {
+	r := &fakeRoutines{names: []string{"golang"}, prompts: map[string]string{"golang": "調べて"}}
+	m := routineModel(t, r, Config{RoutineCmd: "true"})
+
+	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
+	m = got.(Model)
+
+	got, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'q', Text: "q"}))
+	m = got.(Model)
+	if cmd != nil {
+		t.Fatal("実行中なのに1回目の q で終了しようとしている")
+	}
+	if !strings.Contains(m.errMsg, "実行中") {
+		t.Errorf("警告が出ていない: %q", m.errMsg)
+	}
+
+	if _, cmd = m.Update(tea.KeyPressMsg(tea.Key{Code: 'q', Text: "q"})); cmd == nil {
+		t.Error("2回目の q で終了していない")
+	}
+}
+
+// 警告は連打のときだけ。間に別のキーを挟んだら、また止まること。
+func TestQuitWarningResetsOnOtherKey(t *testing.T) {
+	r := &fakeRoutines{names: []string{"golang"}, prompts: map[string]string{"golang": "調べて"}}
+	m := routineModel(t, r, Config{RoutineCmd: "true"})
+
+	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
+	m = got.(Model)
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'q', Text: "q"}))
+	m = got.(Model)
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+	m = got.(Model)
+
+	if _, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'q', Text: "q"})); cmd != nil {
+		t.Error("別のキーを挟んだのに q が警告なしで終了している")
+	}
+}
+
+// 実行中の routine が無ければ q はそのまま終了すること。
+func TestQuitImmediateWhenIdle(t *testing.T) {
+	m := routineModel(t, &fakeRoutines{names: []string{"golang"}}, Config{})
+	if _, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'q', Text: "q"})); cmd == nil {
+		t.Error("実行中の routine が無いのに q で終了しない")
+	}
+}
+
+// ctrl+c は握り潰さない。逃げ道は常に残す。
+func TestCtrlCQuitsEvenWhileRunning(t *testing.T) {
+	r := &fakeRoutines{names: []string{"golang"}, prompts: map[string]string{"golang": "調べて"}}
+	m := routineModel(t, r, Config{RoutineCmd: "true"})
+
+	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
+	m = got.(Model)
+	if _, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl})); cmd == nil {
+		t.Error("実行中に ctrl+c が握り潰されている")
+	}
+}
+
+// e が開くのは指示ファイル。結果ファイルは tk が書くもので、人が編集しない。
+func TestEKeyOnRoutineOpensPrompt(t *testing.T) {
+	m := routineModel(t, &fakeRoutines{names: []string{"golang"}}, Config{EditorCmd: "vi"})
+
+	c, err := m.editorCommand()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c == nil {
+		t.Fatal("routine で e を押しても開くファイルが決まらない")
+	}
+	want := "/routines/golang.md"
+	if c.Args[len(c.Args)-1] != want {
+		t.Errorf("開くパス = %q, want %q", c.Args[len(c.Args)-1], want)
+	}
+}
+
+// 右ペインには実行結果を出す。読みたいのはほぼ常にこれ。
+func TestRoutineDetailShowsResult(t *testing.T) {
+	r := &fakeRoutines{
+		names:   []string{"golang"},
+		prompts: map[string]string{"golang": "調べて"},
+		results: map[string]string{"golang": "## 2026-08-15 10:00\n\n1.24 が出ています\n"},
+	}
+	m := routineModel(t, r, Config{})
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = got.(Model)
+
+	if !strings.Contains(m.detail.View(), "1.24 が出ています") {
+		t.Errorf("右ペインに結果が出ていない: %q", m.detail.View())
+	}
+}
+
+// 一度も実行していないなら指示を出す。空白のままだと何も分からない。
+func TestRoutineDetailShowsPromptBeforeFirstRun(t *testing.T) {
+	r := &fakeRoutines{names: []string{"golang"}, prompts: map[string]string{"golang": "最新リリースを調べて"}}
+	m := routineModel(t, r, Config{})
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = got.(Model)
+
+	view := m.detail.View()
+	if !strings.Contains(view, "最新リリースを調べて") {
+		t.Errorf("右ペインに指示が出ていない: %q", view)
+	}
+	if !strings.Contains(view, "未実行") {
+		t.Errorf("右ペインに状態が出ていない: %q", view)
+	}
+}
+
+// 指示も結果も無いときは、何をすればいいかを出す。ここが唯一の案内になる。
+func TestRoutineDetailGuidesWhenEmpty(t *testing.T) {
+	m := routineModel(t, &fakeRoutines{names: []string{"golang"}}, Config{})
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = got.(Model)
+
+	if !strings.Contains(m.detail.View(), "e で書いて") {
+		t.Errorf("案内が出ていない: %q", m.detail.View())
+	}
+}
+
+func TestRoutineLabelShowsState(t *testing.T) {
+	m := routineModel(t, &fakeRoutines{names: []string{"golang"}}, Config{})
+	it := m.items[0]
+
+	if got := m.label(it); !strings.Contains(got, "golang") {
+		t.Errorf("label() = %q", got)
+	}
+	for state, want := range map[routineState]string{routineRunning: "…", routineOK: "✓", routineNG: "✗"} {
+		m.routines[it.ID] = state
+		if got := m.label(it); !strings.Contains(got, want) {
+			t.Errorf("state %v の label() = %q, want %q を含む", state, got, want)
+		}
+	}
+}
+
+// R はどのペインからでもローカルのファイルを読み直す。routines.md を
+// エディタで書き換えたら反映されること。
+func TestReloadPicksUpNewRoutines(t *testing.T) {
+	r := &fakeRoutines{names: []string{"golang"}}
+	m := routineModel(t, r, Config{})
+
+	r.names = append(r.names, "rust")
+	got, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'R', Text: "R"}))
+	m = got.(Model)
+
+	if len(m.items) != 2 {
+		t.Errorf("再読込後の件数 = %d, want 2", len(m.items))
+	}
+}
+
+// routines.md が読めなければ起動を止める。空リストで進むと、まだ
+// 登録していないのか壊れているのか区別が付かない。
+func TestRoutineListErrorFailsLoad(t *testing.T) {
+	want := errors.New("routines.md が壊れている")
+	in := usecase.NewInbox(&fakeStore{list: taskList("")}, nil, nil, &fakeDetailStore{}, &fakeRoutines{listErr: want})
+	if err := in.Load(); !errors.Is(err, want) {
+		t.Errorf("Load() error = %v, want %v", err, want)
+	}
 }

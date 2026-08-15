@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 
@@ -22,6 +24,12 @@ type detailLoadedMsg struct {
 }
 
 type execDoneMsg struct{ err error }
+
+// routineDoneMsg は裏で走らせた routine が終わったことを伝える。
+type routineDoneMsg struct {
+	id  domain.ID
+	err error
+}
 
 // editDoneMsg はエディタが閉じたことを伝える。execDoneMsg と分けているのは、
 // エディタの後だけ tasks.md を読み直す必要があるため。
@@ -50,15 +58,66 @@ func (m Model) reviewExec(it domain.Item) tea.Cmd {
 	})
 }
 
+// routineExec は選択中 routine を裏で回す tea.Cmd を作る。tea.ExecProcess で
+// 包まないので TUI は畳まれず、走っている間も操作を続けられる。
+//
+// tk が終われば子プロセスも道連れになる。終了前に確認を挟むのは updateList の
+// 役目（ここでは扱わない）。
+func (m Model) routineExec(it domain.Item) tea.Cmd {
+	id, routineCmd := it.ID, m.cfg.RoutineCmd
+	inbox := m.inbox
+	return func() tea.Msg {
+		prompt, err := inbox.RoutinePrompt(id)
+		if err != nil {
+			return routineDoneMsg{id: id, err: err}
+		}
+		c, err := ai.RoutineCommand(routineCmd, prompt)
+		if err != nil {
+			return routineDoneMsg{id: id, err: err}
+		}
+		// Output は stderr を ExitError に詰めてくれる。非対話 CLI の
+		// 失敗理由（未ログイン等）は stderr にしか出ないので、拾わないと
+		// 「✗ だが理由が分からない」で終わる。
+		out, err := c.Output()
+		if err != nil {
+			return routineDoneMsg{id: id, err: routineError(err)}
+		}
+		return routineDoneMsg{id: id, err: inbox.SaveRoutineResult(id, string(out))}
+	}
+}
+
+// routineError は exec の失敗に stderr の1行目を足す。
+func routineError(err error) error {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+		line, _, _ := strings.Cut(strings.TrimSpace(string(ee.Stderr)), "\n")
+		if line != "" {
+			return fmt.Errorf("%w: %s", err, line)
+		}
+	}
+	return err
+}
+
 // editorCommand は選択中タスクの詳細ファイルを開く *exec.Cmd を組み立てる。
 // tea.ExecProcess で包む前に切り出してあるのは、どのパスを開こうとしているかを
 // TUI を起動せずにテストするため（adapter/editor と同じ理由）。
 func (m Model) editorCommand() (*exec.Cmd, error) {
 	it, ok := m.selected()
-	if !ok || it.Kind != domain.KindTask {
+	if !ok {
 		return nil, nil
 	}
-	path, err := m.inbox.DetailPath(it.ID)
+	var path string
+	var err error
+	switch it.Kind {
+	case domain.KindTask:
+		path, err = m.inbox.DetailPath(it.ID)
+	case domain.KindRoutine:
+		// routine で開くのは指示ファイル。結果ファイルは tk が書くもので、
+		// 人が編集するものではない。
+		path, err = m.inbox.RoutinePath(it.ID)
+	default:
+		return nil, nil // PR には開くファイルが無い
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -144,6 +203,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncDetail()
 		return m, nil
 
+	case routineDoneMsg:
+		if msg.err != nil {
+			m.routines[msg.id] = routineNG
+			m.errMsg, m.errIsPR = msg.err.Error(), false
+		} else {
+			m.routines[msg.id] = routineOK
+		}
+		// 結果ファイルが増えたので、その routine を選んだままなら描き直す。
+		m.syncDetail()
+		return m, nil
+
 	case execDoneMsg:
 		// 成功しても errMsg は消さない。保存失敗など無関係なエラーを
 		// 握り潰さないため（prLoadedMsg の errIsPR ガードと同じ理由）。
@@ -207,13 +277,32 @@ func (m Model) updateAdding(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// q 以外を押したら警告を出し直す状態に戻す。連打でなければ、間に何か
+	// 挟んだ2回目の q はもう一度止まる。
+	if msg.String() != "q" {
+		m.quitWarned = false
+	}
+
 	switch msg.String() {
-	case "q", "ctrl+c":
+	// ctrl+c は握り潰さない。逃げ道は常に残す。
+	case "ctrl+c":
 		return m, tea.Quit
 
-	// ペインは2つなので、h も l ももう一方へ移る。
-	case "h", "l":
-		m.toggleFocus()
+	case "q":
+		// 実行中の routine は tk と一緒に死ぬ。一度だけ止めて知らせる。
+		if n := m.runningRoutines(); n > 0 && !m.quitWarned {
+			m.quitWarned = true
+			m.errMsg, m.errIsPR = fmt.Sprintf("routine 実行中 %d 件。もう一度 q で終了", n), false
+			return m, nil
+		}
+		return m, tea.Quit
+
+	case "l":
+		m.moveFocus(1)
+		return m, m.detailCmd()
+
+	case "h":
+		m.moveFocus(-1)
 		return m, m.detailCmd()
 
 	case "j", "down":
@@ -299,6 +388,24 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.reviewExec(it)
+
+	case "x":
+		it, ok := m.selected()
+		if !ok || it.Kind != domain.KindRoutine {
+			return m, nil
+		}
+		// 同じ routine の二重起動は防ぐ。結果ファイルへの追記が混ざるうえ、
+		// 同じことを2回 AI に聞くだけで得るものが無い。
+		if m.routines[it.ID] == routineRunning {
+			return m, nil
+		}
+		m.routines[it.ID] = routineRunning
+		// PR 取得のエラーはここでは消さない。routine を走らせても PR の
+		// 状況は変わらないので、消すと直ったように見えてしまう。
+		if !m.errIsPR {
+			m.errMsg = ""
+		}
+		return m, m.routineExec(it)
 
 	case "e":
 		return m, m.editExec()

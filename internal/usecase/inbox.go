@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/k-narusawa/tk/internal/domain"
@@ -13,32 +14,98 @@ type Inbox struct {
 	prs         PRSource
 	details     PRDetailSource
 	taskDetails TaskDetailStore
+	routines    RoutineSource
 
-	mu      sync.Mutex
-	tasks   domain.TaskList
-	prItems []domain.Item
-	cache   map[domain.ID]domain.PRDetail
+	mu           sync.Mutex
+	tasks        domain.TaskList
+	prItems      []domain.Item
+	routineItems []domain.Item
+	cache        map[domain.ID]domain.PRDetail
 }
 
-func NewInbox(store TaskStore, prs PRSource, details PRDetailSource, taskDetails TaskDetailStore) *Inbox {
+func NewInbox(store TaskStore, prs PRSource, details PRDetailSource, taskDetails TaskDetailStore, routines RoutineSource) *Inbox {
 	return &Inbox{
 		store:       store,
 		prs:         prs,
 		details:     details,
 		taskDetails: taskDetails,
+		routines:    routines,
 		cache:       make(map[domain.ID]domain.PRDetail),
 	}
 }
 
+// Load はローカルのファイル（tasks.md と routines.md）をまとめて読み直す。
+// どちらも同じ r / R で更新されるので、別々の入口にしない。
 func (i *Inbox) Load() error {
 	t, err := i.store.Load()
 	if err != nil {
 		return err
 	}
+	r, err := i.routines.List()
+	if err != nil {
+		return err
+	}
 	i.mu.Lock()
-	i.tasks = t
+	i.tasks, i.routineItems = t, r
 	i.mu.Unlock()
 	return nil
+}
+
+func (i *Inbox) Routines() []domain.Item {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return slices.Clone(i.routineItems)
+}
+
+// routineName は id に対応する監視項目の名前。指示・結果ファイルの名前の元になる。
+func (i *Inbox) routineName(id domain.ID) (string, bool) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	for _, it := range i.routineItems {
+		if it.ID == id {
+			return it.Title, true
+		}
+	}
+	return "", false
+}
+
+// RoutinePrompt は AI に渡す指示。実行の直前に読むので、書き換えれば
+// 次の実行から効く（review.md と同じ考え方）。
+func (i *Inbox) RoutinePrompt(id domain.ID) (string, error) {
+	name, ok := i.routineName(id)
+	if !ok {
+		return "", fmt.Errorf("routine が見つからない: %s", id)
+	}
+	return i.routines.Body(name)
+}
+
+// RoutineResult は右ペインに出す過去の実行結果。タスクの詳細と同じく
+// キャッシュしないので、走り終えた結果が次に選んだ瞬間に出る。
+func (i *Inbox) RoutineResult(id domain.ID) (string, error) {
+	name, ok := i.routineName(id)
+	if !ok {
+		return "", nil
+	}
+	return i.routines.Result(name)
+}
+
+// SaveRoutineResult は実行結果を追記する。
+func (i *Inbox) SaveRoutineResult(id domain.ID, body string) error {
+	name, ok := i.routineName(id)
+	if !ok {
+		return fmt.Errorf("routine が見つからない: %s", id)
+	}
+	return i.routines.AppendResult(name, body)
+}
+
+// RoutinePath は e が開く指示ファイルのパス。存在しない ID はエラーにする
+// （DetailPath と同じ理由で、空パスを返すとエディタが妙な場所を開く）。
+func (i *Inbox) RoutinePath(id domain.ID) (string, error) {
+	name, ok := i.routineName(id)
+	if !ok {
+		return "", fmt.Errorf("routine が見つからない: %s", id)
+	}
+	return i.routines.EditPath(name)
 }
 
 func (i *Inbox) Tasks() []domain.Item {
