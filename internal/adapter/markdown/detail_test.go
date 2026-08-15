@@ -110,6 +110,17 @@ func TestBodyMissingFileIsEmptyNotError(t *testing.T) {
 	}
 }
 
+// 意図的な仕様: サニタイズ後に同じファイル名になるタイトル同士は同じ詳細
+// ファイルを共有する。ID やサフィックスで区別する案もあるが、ファイル名から
+// タイトルがそのまま読めることを優先した結果、この衝突を受け入れている。
+func TestDetailNameCollisionIsIntentional(t *testing.T) {
+	a := detailName("api/auth")
+	b := detailName("api-auth")
+	if a != b {
+		t.Fatalf("detailName(%q) = %q, detailName(%q) = %q, want 同じファイル名（意図した衝突）", "api/auth", a, "api-auth", b)
+	}
+}
+
 // エディタは親ディレクトリが無いと保存に失敗するので、先に作っておく。
 func TestEditPathCreatesDir(t *testing.T) {
 	d := NewDetailStore(filepath.Join(t.TempDir(), "tasks.md"))
