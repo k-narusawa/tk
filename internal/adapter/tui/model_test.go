@@ -36,6 +36,27 @@ func (f *fakeStore) Save(t domain.TaskList) error {
 	return nil
 }
 
+// fakeDetailStore は usecase.TaskDetailStore を満たす。タイトル → 本文の
+// マップで、ファイルシステムを使わずに詳細の受け渡しを検証する。
+type fakeDetailStore struct {
+	bodies map[string]string
+	err    error
+}
+
+func (f *fakeDetailStore) Body(title string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.bodies[title], nil
+}
+
+func (f *fakeDetailStore) EditPath(title string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return "/tmp/tk-test/" + title + ".md", nil
+}
+
 // fakePRs は role ごとに1件返す。r キーや起動時の非同期取り込みを
 // 実プロセスなしで検証するためのもの。
 type fakePRs struct {
@@ -75,7 +96,7 @@ func prPair() *fakePRs {
 
 func newTestModel(t *testing.T, store *fakeStore) Model {
 	t.Helper()
-	inbox := usecase.NewInbox(store, nil, nil)
+	inbox := usecase.NewInbox(store, nil, nil, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -236,7 +257,7 @@ func TestInitFetchesPRsAsync(t *testing.T) {
 		domain.RoleReview: {ID: domain.PRID("a/x", 1), Kind: domain.KindPR, Repo: "a/x", Number: 1, Role: domain.RoleReview},
 		domain.RoleMine:   {ID: domain.PRID("a/y", 2), Kind: domain.KindPR, Repo: "a/y", Number: 2, Role: domain.RoleMine},
 	}}
-	inbox := usecase.NewInbox(store, prs, nil)
+	inbox := usecase.NewInbox(store, prs, nil, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -277,7 +298,7 @@ func TestInitFetchesPRsAsync(t *testing.T) {
 func TestInitPRFailureKeepsTasksIntact(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
 	wantErr := errors.New("gh: not logged in")
-	inbox := usecase.NewInbox(store, &fakePRs{err: wantErr}, nil)
+	inbox := usecase.NewInbox(store, &fakePRs{err: wantErr}, nil, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -314,7 +335,7 @@ func TestInitPRFailureKeepsTasksIntact(t *testing.T) {
 // 別々の原因のエラーを取得成功が一括で握り潰す、が今回の実バグ。
 func TestSuccessfulPRRefreshKeepsSaveError(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n"), saveErr: errors.New("disk full")}
-	inbox := usecase.NewInbox(store, &fakePRs{}, nil)
+	inbox := usecase.NewInbox(store, &fakePRs{}, nil, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -723,7 +744,7 @@ func TestLongErrorInFooterDoesNotOverflow(t *testing.T) {
 // のは prLoadedMsg なので、実際の起動と同じくそれも流す。
 func prModelWith(t *testing.T, store *fakeStore, details *fakeDetails, aiCmd string) Model {
 	t.Helper()
-	inbox := usecase.NewInbox(store, prPair(), details)
+	inbox := usecase.NewInbox(store, prPair(), details, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -749,7 +770,7 @@ func prModel(t *testing.T, aiCmd string) Model {
 
 func TestHLKeysMoveFocus(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -814,7 +835,7 @@ func TestPaneFocusWrapsWithBothKeys(t *testing.T) {
 // カーソル位置はペインごとに保たれる。往復しても元の行に戻ること。
 func TestCursorIsPerPane(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] 一\n- [ ] 二\n- [ ] 三\n")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -865,7 +886,7 @@ func TestCursorIsPerPane(t *testing.T) {
 // 落ちないこと（PR が減る、タスクが消えるのは普通に起きる）。
 func TestPerPaneCursorClampsWhenListShrinks(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] 一\n- [ ] 二\n- [ ] 三\n")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -919,7 +940,7 @@ func TestShiftAScopeIsFocusedPane(t *testing.T) {
 // 追従しないと、タスクの詳細を出したまま PR 一覧を見ることになる。
 func TestFocusMoveKeepsDetailPaneInSync(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -1234,7 +1255,7 @@ func TestShiftRReloadsTasksFromGitHubPane(t *testing.T) {
 // 件数が出ないと PR が来ているかどうか分からなくなる。
 func TestPaneTitlesShowNameAndCount(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -1458,7 +1479,7 @@ func TestNKeyStillWorksOnTaskPane(t *testing.T) {
 // 故障と区別できないので、取得中と0件を書き分ける。
 func TestGitHubPaneEmptyStates(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	inbox := usecase.NewInbox(store, &fakePRs{}, nil)
+	inbox := usecase.NewInbox(store, &fakePRs{}, nil, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -1489,7 +1510,7 @@ func TestGitHubPaneEmptyStates(t *testing.T) {
 // 一覧は「なし」で矛盾しない。
 func TestGitHubPaneEmptyAfterFetchError(t *testing.T) {
 	store := &fakeStore{list: taskList("")}
-	inbox := usecase.NewInbox(store, &fakePRs{err: errors.New("gh: not logged in")}, nil)
+	inbox := usecase.NewInbox(store, &fakePRs{err: errors.New("gh: not logged in")}, nil, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -1515,7 +1536,7 @@ func TestGitHubPaneEmptyAfterFetchError(t *testing.T) {
 // 右ペインの表示と衝突しない「PR なし」「PR を取得中」に絞る。
 func TestGitHubPaneFillsWithPRsOnLoad(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}

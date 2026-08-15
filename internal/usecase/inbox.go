@@ -9,9 +9,10 @@ import (
 )
 
 type Inbox struct {
-	store   TaskStore
-	prs     PRSource
-	details PRDetailSource
+	store       TaskStore
+	prs         PRSource
+	details     PRDetailSource
+	taskDetails TaskDetailStore
 
 	mu      sync.Mutex
 	tasks   domain.TaskList
@@ -19,12 +20,13 @@ type Inbox struct {
 	cache   map[domain.ID]domain.PRDetail
 }
 
-func NewInbox(store TaskStore, prs PRSource, details PRDetailSource) *Inbox {
+func NewInbox(store TaskStore, prs PRSource, details PRDetailSource, taskDetails TaskDetailStore) *Inbox {
 	return &Inbox{
-		store:   store,
-		prs:     prs,
-		details: details,
-		cache:   make(map[domain.ID]domain.PRDetail),
+		store:       store,
+		prs:         prs,
+		details:     details,
+		taskDetails: taskDetails,
+		cache:       make(map[domain.ID]domain.PRDetail),
 	}
 }
 
@@ -135,4 +137,37 @@ func (i *Inbox) Detail(ctx context.Context, id domain.ID) (domain.PRDetail, erro
 	i.cache[id] = d
 	i.mu.Unlock()
 	return d, nil
+}
+
+// title は id に対応するタスクのタイトル。詳細ファイルの名前の元になる。
+func (i *Inbox) title(id domain.ID) (string, bool) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	for _, it := range i.tasks.Items() {
+		if it.ID == id {
+			return it.Title, true
+		}
+	}
+	return "", false
+}
+
+// Body は選択中タスクの詳細。カーソルが動くたびに呼ばれるが、ローカルの
+// 数 KB のファイルを1本読むだけなのでキャッシュしない。キャッシュしない
+// ことで、エディタで書き換えた内容が次に選んだ瞬間に反映される。
+func (i *Inbox) Body(id domain.ID) (string, error) {
+	title, ok := i.title(id)
+	if !ok {
+		return "", nil
+	}
+	return i.taskDetails.Body(title)
+}
+
+// DetailPath は e が開く詳細ファイルのパス。存在しない ID はエラーにする。
+// 空パスを返すとエディタが意図しない場所を開いてしまう。
+func (i *Inbox) DetailPath(id domain.ID) (string, error) {
+	title, ok := i.title(id)
+	if !ok {
+		return "", fmt.Errorf("タスクが見つからない: %s", id)
+	}
+	return i.taskDetails.EditPath(title)
 }
