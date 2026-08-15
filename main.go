@@ -59,7 +59,13 @@ func run() error {
 		return fmt.Errorf("%s を読めない: %w", path, err)
 	}
 
-	cfg := tui.Config{AICmd: aiCommand(), EditorCmd: editorCommand()}
+	cfg := tui.Config{
+		AICmd:     aiCommand(),
+		EditorCmd: editorCommand(),
+		// tasks.md と同じディレクトリに置く。専用の環境変数を足さなくても
+		// TK_TASKS_FILE を移せば一緒に付いてくる。
+		ReviewPromptPath: filepath.Join(filepath.Dir(path), "review.md"),
+	}
 	_, err = tea.NewProgram(tui.New(inbox, cfg)).Run()
 	return err
 }

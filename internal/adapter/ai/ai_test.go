@@ -2,6 +2,7 @@ package ai
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -96,5 +97,79 @@ func TestCommandWithArgs(t *testing.T) {
 	}
 	if len(cmd.Args) != 3 {
 		t.Fatalf("Args = %v, want 3 要素", cmd.Args)
+	}
+}
+
+func reviewPR() domain.Item {
+	return domain.Item{
+		ID: domain.PRID("app/payment", 412), Kind: domain.KindPR,
+		Title: "fix: 決済のnull落ち", Repo: "app/payment", Number: 412,
+		URL: "https://github.com/app/payment/pull/412", Role: domain.RoleReview,
+	}
+}
+
+// プレースホルダを書かないプロンプトでも、末尾のブロックで対象 PR が伝わること。
+func TestRenderReviewAppendsTarget(t *testing.T) {
+	got := renderReview("この PR をレビューして。\n", reviewPR())
+
+	if !strings.HasPrefix(got, "この PR をレビューして。") {
+		t.Errorf("プロンプトが先頭に来ていない:\n%s", got)
+	}
+	for _, want := range []string{"app/payment", "412", "https://github.com/app/payment/pull/412"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("対象 PR の %q が含まれない:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderReviewReplacesPlaceholders(t *testing.T) {
+	got := renderReview("対象は {{url}}（{{repo}} #{{number}}）", reviewPR())
+
+	want := "対象は https://github.com/app/payment/pull/412（app/payment #412）"
+	if !strings.HasPrefix(got, want) {
+		t.Errorf("置換後の先頭行が想定と違う:\n%s", got)
+	}
+	if strings.Contains(got, "{{") {
+		t.Errorf("プレースホルダが残っている:\n%s", got)
+	}
+}
+
+func TestReviewCommandWritesTempFile(t *testing.T) {
+	promptPath := filepath.Join(t.TempDir(), "review.md")
+	if err := os.WriteFile(promptPath, []byte("観点: エラー処理\n"), 0o600); err != nil {
+		t.Fatalf("プロンプトを書けない: %v", err)
+	}
+
+	cmd, err := ReviewCommand("claude", promptPath, reviewPR())
+	if err != nil {
+		t.Fatalf("ReviewCommand() error = %v", err)
+	}
+	if len(cmd.Args) != 2 || cmd.Args[0] != "claude" {
+		t.Fatalf("Args = %v, want [claude <path>]", cmd.Args)
+	}
+	t.Cleanup(func() { os.Remove(cmd.Args[1]) })
+
+	data, err := os.ReadFile(cmd.Args[1])
+	if err != nil {
+		t.Fatalf("一時ファイルを読めない: %v", err)
+	}
+	for _, want := range []string{"観点: エラー処理", "app/payment"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("一時ファイルに %q が無い:\n%s", want, data)
+		}
+	}
+}
+
+// プロンプトが無いときは、作るべきパスがエラーに出ること。
+// これが唯一の「どこに置けばいいか」の案内になる。
+func TestReviewCommandMissingPromptMentionsPath(t *testing.T) {
+	promptPath := filepath.Join(t.TempDir(), "review.md")
+
+	_, err := ReviewCommand("claude", promptPath, reviewPR())
+	if err == nil {
+		t.Fatal("プロンプトが無いのにエラーが返らない")
+	}
+	if !strings.Contains(err.Error(), promptPath) {
+		t.Errorf("エラーにパスが含まれない: %v", err)
 	}
 }

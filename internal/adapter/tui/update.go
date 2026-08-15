@@ -39,6 +39,17 @@ func (m Model) aiExec(items []domain.Item) tea.Cmd {
 	})
 }
 
+// reviewExec は PR を review.md のプロンプト付きで AI CLI に渡す tea.Cmd を作る。
+func (m Model) reviewExec(it domain.Item) tea.Cmd {
+	c, err := ai.ReviewCommand(m.cfg.AICmd, m.cfg.ReviewPromptPath, it)
+	if err != nil {
+		return func() tea.Msg { return execDoneMsg{err: err} }
+	}
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return execDoneMsg{err: err}
+	})
+}
+
 // editorCommand は選択中タスクの詳細ファイルを開く *exec.Cmd を組み立てる。
 // tea.ExecProcess で包む前に切り出してあるのは、どのパスを開こうとしているかを
 // TUI を起動せずにテストするため（adapter/editor と同じ理由）。
@@ -281,6 +292,13 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.ExecProcess(gh.DiffCommand(it.Repo, it.Number), func(err error) tea.Msg {
 			return execDoneMsg{err: err}
 		})
+
+	case "v":
+		it, ok := m.selected()
+		if !ok || it.Kind != domain.KindPR {
+			return m, nil
+		}
+		return m, m.reviewExec(it)
 
 	case "e":
 		return m, m.editExec()

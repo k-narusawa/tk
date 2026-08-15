@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -1789,4 +1791,61 @@ func TestEKeyWithDetailPathErrorSurfacesError(t *testing.T) {
 	if done.err == nil {
 		t.Error("パスが取れないのに editDoneMsg.err が nil")
 	}
+}
+
+// v は review.md のプロンプトで PR を AI に渡す。d/enter と同じく、
+// 返る Cmd は実プロセスを起動するので nil かどうかだけを見る。
+func TestVKeyOnPRReturnsCmd(t *testing.T) {
+	m := prModel(t, "claude")
+	m.cfg.ReviewPromptPath = writeReviewPrompt(t, "レビューして\n")
+
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'v', Text: "v"}))
+	if cmd == nil {
+		t.Fatal("PR で v を押しても cmd が nil")
+	}
+}
+
+func TestVKeyOnTaskReturnsNil(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
+	m.cfg.ReviewPromptPath = writeReviewPrompt(t, "レビューして\n")
+
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'v', Text: "v"}))
+	if cmd != nil {
+		t.Error("タスクで v を押したのに cmd が nil でない")
+	}
+}
+
+// プロンプトが無いときは黙って何もしないのではなく、置くべきパスを
+// エラーとして出す（a の TK_AI_CMD 空と同じ扱い）。
+func TestVKeyWithoutPromptSurfacesError(t *testing.T) {
+	m := prModel(t, "claude")
+	m.cfg.ReviewPromptPath = filepath.Join(t.TempDir(), "review.md")
+
+	got, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'v', Text: "v"}))
+	if cmd == nil {
+		t.Fatal("プロンプトが無くても cmd が nil であってはならない（エラーを出せない）")
+	}
+
+	msg := cmd()
+	done, ok := msg.(execDoneMsg)
+	if !ok {
+		t.Fatalf("cmd() が返したのは %T, want execDoneMsg", msg)
+	}
+	if done.err == nil {
+		t.Fatal("プロンプトが無いのに execDoneMsg.err が nil")
+	}
+
+	got, _ = got.(Model).Update(done)
+	if !strings.Contains(got.(Model).errMsg, "review.md") {
+		t.Errorf("errMsg にパスが出ていない: %q", got.(Model).errMsg)
+	}
+}
+
+func writeReviewPrompt(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "review.md")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("プロンプトを書けない: %v", err)
+	}
+	return path
 }

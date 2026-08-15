@@ -28,6 +28,9 @@ const (
 type Config struct {
 	AICmd     string // $TK_AI_CMD
 	EditorCmd string // $TK_EDITOR / $VISUAL / $EDITOR
+	// ReviewPromptPath は v が読むレビュー用プロンプト。tasks.md と同じ
+	// ディレクトリの review.md を main.go が導出する。
+	ReviewPromptPath string
 }
 
 type Model struct {
