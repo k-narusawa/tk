@@ -72,6 +72,10 @@ func truncateBytes(s string, n int) string {
 
 // Body は詳細の本文。ファイルが無ければ空文字を返す。詳細を持たない
 // タスクのほうが普通なので、未作成をエラーにしない。
+//
+// カーソル移動のたびに bubbletea の Update から同期的に呼ぶので、遅い
+// ファイルシステム（ネットワークマウント、クラウド同期フォルダ）や
+// 巨大な詳細ファイルは UI を止める。直すなら tea.Cmd に読み込みを逃がす。
 func (d *DetailStore) Body(title string) (string, error) {
 	data, err := os.ReadFile(filepath.Join(d.dir, detailName(title)))
 	if errors.Is(err, fs.ErrNotExist) {
