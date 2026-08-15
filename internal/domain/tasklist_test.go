@@ -146,12 +146,37 @@ func TestParseNestedCheckboxIsSeparateTask(t *testing.T) {
 	}
 }
 
-// 詳細は別ファイルになったので、Add は最後のチェックボックス行の直後に入る。
-// インデント行はもう詳細ではなく、ただの自由記述として原文のまま残る。
-func TestAddInsertsAfterLastCheckboxLine(t *testing.T) {
+// 詳細は別ファイルになったが、旧形式（チェックボックス行に続くインデント行を
+// 詳細として書いていたファイル）からアップグレードした直後のユーザーは
+// 全員この形のまま残っている。最後のチェックボックス行の直後に割り込むと、
+// 続くインデント行が新タスクの下にぶら下がる形に化けてしまう。
+// そのインデント行の直後まで飛ばしてから挿入する。
+func TestAddInsertsAfterTrailingIndentedLines(t *testing.T) {
 	src := "- [ ] A\n  メモ1\n  メモ2\n"
 	got := strings.Join(Parse(lines(src)).Add("B").Render(), "\n")
-	want := "- [ ] A\n- [ ] B\n  メモ1\n  メモ2\n"
+	want := "- [ ] A\n  メモ1\n  メモ2\n- [ ] B\n"
+	if got != want {
+		t.Errorf("Add の挿入位置が違う\n--- got:\n%q\n--- want:\n%q", got, want)
+	}
+}
+
+// インデント行の後に空行を挟んで見出しが続く場合、その空行の連続は次の
+// セクションとの区切りなので、空行の後ろまで飛ばしてはいけない。
+func TestAddInsertsAfterIndentedBlockBeforeHeading(t *testing.T) {
+	src := "- [ ] A\n  メモ\n## メモ\n自由記述\n"
+	got := strings.Join(Parse(lines(src)).Add("B").Render(), "\n")
+	want := "- [ ] A\n  メモ\n- [ ] B\n## メモ\n自由記述\n"
+	if got != want {
+		t.Errorf("Add の挿入位置が違う\n--- got:\n%q\n--- want:\n%q", got, want)
+	}
+}
+
+// チェックボックス行の直後が空行で、そのまま見出しに続く場合。空行はまだ
+// 詳細行が見つかっていないので、空行を挟んで見出しの下まで飛ばしてはいけない。
+func TestAddDoesNotSkipBlankLinesBeforeHeading(t *testing.T) {
+	src := "- [ ] A\n\n## メモ\n自由記述\n"
+	got := strings.Join(Parse(lines(src)).Add("B").Render(), "\n")
+	want := "- [ ] A\n- [ ] B\n\n## メモ\n自由記述\n"
 	if got != want {
 		t.Errorf("Add の挿入位置が違う\n--- got:\n%q\n--- want:\n%q", got, want)
 	}

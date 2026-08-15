@@ -86,10 +86,14 @@ func (t TaskList) Toggle(id ID) TaskList {
 
 // Add は最後のチェックボックス行の直後に挿入する。末尾に追記すると
 // "## メモ" のような後続セクションの下に紛れ込んでしまうため。
+// ただし、旧形式（チェックボックス行に続くインデント行を詳細として書いて
+// いたファイル）からアップグレードした直後のユーザーはその形のまま残って
+// いる。直後に割り込むと続くインデント行が新タスクの下にぶら下がる形に
+// 化けてしまうので、そのインデント行の直後まで飛ばす。
 func (t TaskList) Add(title string) TaskList {
 	at := -1
 	if n := len(t.tasks); n > 0 {
-		at = t.tasks[n-1].line
+		at = addAnchor(t.lines, t.tasks[n-1].line)
 	}
 	if at < 0 {
 		// チェックボックスが無いなら最後の非空行の直後
@@ -111,4 +115,24 @@ func (t TaskList) Add(title string) TaskList {
 	lines = append(lines, newLine)
 	lines = append(lines, t.lines[at+1:]...)
 	return Parse(lines)
+}
+
+// addAnchor は checkboxLine に続くインデント行を「そのタスクの続き」とみなし
+// て飛ばした先の行番号を返す。非インデントの行（次のチェックボックスや見出し）
+// か入力の終端で止まる。空行そのものは挿入位置に含めない。次のインデント行へ
+// 続くかどうかを空行の時点では判断できず、"## メモ" の前の空行の連続に紛れ
+// 込ませないため。
+func addAnchor(lines []string, checkboxLine int) int {
+	at := checkboxLine
+	for i := checkboxLine + 1; i < len(lines); i++ {
+		line := lines[i]
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+			break
+		}
+		at = i
+	}
+	return at
 }
