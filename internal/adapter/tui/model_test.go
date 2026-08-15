@@ -1723,6 +1723,27 @@ func TestDetailShowsReadError(t *testing.T) {
 	}
 }
 
+// 詳細ファイルは今や任意サイズの Markdown なので、長い1行（プレーンな段落や
+// 長い URL）が来うる。h/l はペイン切替に使うので横スクロールする手段が無く、
+// 折り返さないと幅を超えた分が二度と見えない。
+func TestLongLineInDetailBodyIsSoftWrapped(t *testing.T) {
+	line := strings.Repeat("a", 200) + "END"
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	details := &fakeDetailStore{bodies: map[string]string{"やること": line + "\n"}}
+	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details)
+	if err := inbox.Load(); err != nil {
+		t.Fatal(err)
+	}
+	m := New(inbox, Config{})
+
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: 30})
+	m = got.(Model)
+
+	if !strings.Contains(m.detail.View(), "END") {
+		t.Errorf("長い行の末尾が折り返されず表示から消えている:\n%s", m.detail.View())
+	}
+}
+
 // e は tasks.md ではなく、そのタスクの詳細ファイルを開く。
 // e が開くのは tasks.md ではなく、そのタスクの詳細ファイル。
 // argv を直接見る。cmd が非 nil なだけでは、どのファイルを開こうとして

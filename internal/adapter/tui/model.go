@@ -65,12 +65,17 @@ func New(inbox *usecase.Inbox, cfg Config) Model {
 	ti.Placeholder = "新しいタスク"
 	ti.SetWidth(40)
 
+	detail := viewport.New(viewport.WithWidth(40), viewport.WithHeight(20))
+	// 詳細は任意サイズの Markdown ファイルになった。h/l はペイン切替に使うため
+	// 横スクロールする手段が無く、折り返さないと幅を超えた分が二度と見えない。
+	detail.SoftWrap = true
+
 	return Model{
 		inbox:      inbox,
 		cfg:        cfg,
 		items:      inbox.Tasks(),
 		otherItems: inbox.PRs(),
-		detail:     viewport.New(viewport.WithWidth(40), viewport.WithHeight(20)),
+		detail:     detail,
 		details:    make(map[domain.ID]detailEntry),
 		input:      ti,
 	}
