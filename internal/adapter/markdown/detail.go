@@ -22,7 +22,15 @@ type DetailStore struct{ dir string }
 // 拡張子が無いと落とした結果がファイル自身と衝突するので、その場合だけ
 // ".d" を足す。衝突したままだと MkdirAll がファイルにぶつかって失敗する。
 func NewDetailStore(tasksFile string) *DetailStore {
-	dir := strings.TrimSuffix(tasksFile, filepath.Ext(tasksFile))
+	// filepath.Ext は ".tasks" のような dotfile 名を丸ごと拡張子とみなす。
+	// そのまま落とすと dir が親ディレクトリまで縮み、詳細ファイルが
+	// $HOME に散らばる。
+	base := filepath.Base(tasksFile)
+	ext := filepath.Ext(base)
+	if ext == base {
+		ext = ""
+	}
+	dir := strings.TrimSuffix(tasksFile, ext)
 	if dir == tasksFile {
 		dir += ".d"
 	}
