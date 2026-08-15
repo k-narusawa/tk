@@ -142,6 +142,24 @@ func TestEditPathCreatesDir(t *testing.T) {
 	}
 }
 
+// 詳細ディレクトリ内のファイル名はタスクのタイトルそのものなので、
+// 0o755 だと ls ~someone/.config/tk/tasks だけで一覧が漏れる。
+func TestEditPathCreatesDirWithRestrictedMode(t *testing.T) {
+	d := NewDetailStore(filepath.Join(t.TempDir(), "tasks.md"))
+
+	if _, err := d.EditPath("やること"); err != nil {
+		t.Fatalf("EditPath() = %v", err)
+	}
+
+	info, err := os.Stat(d.Dir())
+	if err != nil {
+		t.Fatalf("詳細ディレクトリが作られていない: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Errorf("詳細ディレクトリのモード = %o, want %o", got, 0o700)
+	}
+}
+
 // tk は詳細を書かない。EditPath はパスを返すだけで、ファイルは作らない。
 func TestEditPathDoesNotCreateFile(t *testing.T) {
 	d := NewDetailStore(filepath.Join(t.TempDir(), "tasks.md"))

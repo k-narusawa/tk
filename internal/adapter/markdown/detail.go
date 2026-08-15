@@ -90,7 +90,10 @@ func (d *DetailStore) Body(title string) (string, error) {
 // EditPath は e が開くパス。tk は詳細を書かないのでファイルは作らないが、
 // 親ディレクトリだけは作る。エディタは親が無いと保存に失敗する。
 func (d *DetailStore) EditPath(title string) (string, error) {
-	if err := os.MkdirAll(d.dir, 0o755); err != nil {
+	// ディレクトリ内のファイル名がタスクのタイトルそのものなので、0o755 だと
+	// ls ~someone/.config/tk/tasks だけで一覧が漏れる。個々のファイルの
+	// モードとは無関係にディレクトリ自体を締める。
+	if err := os.MkdirAll(d.dir, 0o700); err != nil {
 		return "", err
 	}
 	return filepath.Join(d.dir, detailName(title)), nil
