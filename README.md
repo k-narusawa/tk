@@ -2,7 +2,7 @@
 
 タスクと GitHub PR を上下のペインに並べて見るターミナル UI。
 
-タスクは `~/tasks.md`（Markdown のチェックボックス）に保存する。Neovim で直接編集してもよい。GitHub へのアクセスは `gh` CLI をサブプロセスで叩く。認証情報は tk 自身が一切扱わない。
+タスクは `~/.config/tk/tasks.md`（Markdown のチェックボックス）に保存する。各タスクの詳細は `~/.config/tk/tasks/<タイトル>.md` に1ファイルずつ置く。どちらも Neovim で直接編集してよい。GitHub へのアクセスは `gh` CLI をサブプロセスで叩く。認証情報は tk 自身が一切扱わない。
 
 ## 使う
 
@@ -21,7 +21,7 @@ tk
 | `j` / `k` | カーソル移動 |
 | `space` | タスクの完了トグル（即 `tasks.md` へ書き戻し。タスクペインのみ） |
 | `n` | 新規タスク追加（タスクペインのみ） |
-| `e` | 選択中のタスクの行を `$EDITOR` で開く（タスクペインのみ）。閉じると `tasks.md` を読み直す |
+| `e` | 選択中タスクの詳細ファイルを `$EDITOR` で開く（タスクペインのみ）。閉じると `tasks.md` を読み直す |
 | `enter` | PR をブラウザで開く（GitHub ペインのみ） |
 | `d` | `gh pr diff` を表示（GitHub ペインのみ） |
 | `a` / `A` | 選択アイテム / フォーカス中ペイン全体を AI CLI に渡す |
@@ -32,25 +32,63 @@ tk
 
 | 環境変数 | 既定値 | 用途 |
 |---|---|---|
-| `TK_TASKS_FILE` | `~/tasks.md` | タスクの保存先 |
+| `TK_TASKS_FILE` | `~/.config/tk/tasks.md` | タスク一覧の保存先。詳細ディレクトリはここから導出する（`tasks.md` → `tasks/`） |
 | `TK_AI_CMD` | `claude` | `a` / `A` で起動する AI CLI |
 | `TK_EDITOR` | `$VISUAL` → `$EDITOR` → `vi` | `e` で起動するエディタ |
 
 ## タスクの詳細
 
-チェックボックス行の直後に続くインデント行が、そのタスクの詳細メモになる。右ペインに表示される。
+詳細はタスクごとの独立したファイルに置く。ファイル名がタスクのタイトルそのもの。
+
+```
+~/.config/tk/
+  tasks.md                          一覧（順番・完了・タグ）
+  tasks/
+    認証まわりのリファクタ.md          詳細（本文だけ）
+```
+
+`tasks.md`:
 
 ```markdown
 - [ ] 認証まわりのリファクタ @today
-  - Cookie の SameSite を Lax に
-
-  RFC を読み直すこと
-- [ ] 別のタスク
+- [x] 別のタスク
 ```
 
-空行を挟んでも続く。非インデントの行（`## メモ` など）か次のチェックボックス行で終わり。`  - [ ] サブタスク` のようなインデントされたチェックボックスは、詳細ではなく独立したタスクとして扱う。
+`tasks/認証まわりのリファクタ.md`:
 
-書くのは `e`（`$EDITOR` が該当行を開く）か、Neovim で `tasks.md` を直接編集する。**tk 自身は詳細を書き込まない。** 行ジャンプの `+N` は vi 系の記法なので、それ以外のエディタでは効かない。
+```markdown
+Cookie の SameSite を Lax に
+
+RFC を読み直すこと
+```
+
+詳細ファイルの中身に tk が課す規則はない。frontmatter も要らない。書いた Markdown がそのまま右ペインに出る。
+
+書くのは `e`（そのタスクの詳細ファイルが `$EDITOR` で開く）か、直接ファイルを編集する。**tk 自身は詳細を書き込まない。** ファイルが無ければエディタが新規作成する。tk がやるのは `tasks/` ディレクトリを作ることだけ。
+
+いくつか決めごとがある。
+
+- ファイル名はタイトルから作る。`/` は `-` に、先頭の `.` は `-` に置換し、255 バイトで切り詰める。**タグは含めない**ので、タグを付け替えても詳細は迷子にならない
+- 同じタイトルのタスクが2つあれば、同じ詳細ファイルを見る
+- **tk は詳細ファイルを削除しない。** `tasks.md` から行を消しても詳細は残る。「完了して消した」のか「一時的にコメントアウトした」のかを区別できないので、書いたメモを勝手に消さない。溜まったら手で消す
+- 詳細はキャッシュしない。カーソルが動くたびに読み直すので、エディタで書き換えれば次に選んだ瞬間に反映される
+
+## 0.x からの移行
+
+保存先が `~/tasks.md` から `~/.config/tk/tasks.md` に変わった。自動移行はしないので手で移す。
+
+```sh
+mkdir -p ~/.config/tk
+mv ~/tasks.md ~/.config/tk/tasks.md
+```
+
+`mkdir -p` は保険。保存先が無ければ `Store.Save` が初回保存時に自動で作るので必須ではない。
+
+`~/tasks.md` を使い続けたい場合は `TK_TASKS_FILE=~/tasks.md` を指定する。その場合、詳細ファイルの保存先も `~/.config/tk/tasks/` ではなく `~/tasks/` になる。
+
+以前はチェックボックス行の直後のインデント行が詳細だった。この解釈はやめたので、既存のインデント行は右ペインに出なくなる（`tasks.md` からは消えない。tk は非チェックボックス行を原文のまま保つ）。右ペインに出したければ `~/.config/tk/tasks/<タイトル>.md` に手で移す。
+
+`~/.config` を dotfiles リポジトリで管理している場合、タスクの中身がリポジトリに入る。`.gitignore` に `tk/` を足しておくこと。
 
 フォーカス中のペインは枠が緑になり、フォーカスしていない側は枠線だけに潰れてタイトルに件数（`GitHub (3)`）が出る。
 
@@ -65,7 +103,7 @@ go test ./...          # 全テスト
 go test -race ./...    # 競合検出（TUI と Refresh の並行処理があるので PR 前に必ず）
 go vet ./...
 mise run dev            # 手元で起動確認（サブディレクトリからでも可）
-TK_TASKS_FILE=/tmp/t.md go run .   # 自分の tasks.md を汚さずに試す
+TK_TASKS_FILE=/tmp/t.md go run .   # 一覧も詳細も /tmp/t/ に隔離して試す
 ```
 
 テストは標準の `testing` のみ。フレームワークは足さない。
@@ -79,7 +117,7 @@ TK_TASKS_FILE=/tmp/t.md go run .   # 自分の tasks.md を汚さずに試す
 | `internal/domain/` | `Item` の構造、Markdown の解釈と生成、並び順。純粋関数のみ | 標準ライブラリのみ（実質 `strings` / `fmt`） |
 | `internal/usecase/` | アプリの手順。ポートの interface を自分で定義し、実装は知らない | `internal/domain` + 標準ライブラリ |
 | `internal/adapter/tui` | bubbletea / lipgloss / bubbles への依存はここだけ | 全部 |
-| `internal/adapter/markdown` | `tasks.md` の読み書き（tmp + `os.Rename` で atomic） | |
+| `internal/adapter/markdown` | `tasks.md` の読み書き（tmp + `os.Rename` で atomic）と、詳細ファイルの読み込み | |
 | `internal/adapter/gh` | `gh` サブプロセス。`*exec.Cmd` を返すだけで実行しない | |
 | `internal/adapter/ai` | AI CLI 用の一時ファイル生成と `*exec.Cmd` 組み立て | |
 | `internal/adapter/editor` | エディタ起動の `*exec.Cmd` 組み立て。実行しない | |
@@ -94,6 +132,7 @@ TK_TASKS_FILE=/tmp/t.md go run .   # 自分の tasks.md を汚さずに試す
 - **bubbletea は v2**。v1 の記憶で書くとコンパイルが通らない（`View() tea.View`、`tea.KeyPressMsg`、スペースキーは `msg.String() == "space"`）。差分は [docs/superpowers/specs/2026-08-11-tk-design.md](docs/superpowers/specs/2026-08-11-tk-design.md) に一覧がある。
 - **モジュールパスは `charm.land/...`**。旧 `github.com/charmbracelet/...` では `go get` が通らない。
 - **`tasks.md` の非チェックボックス行（見出し・自由記述）は原文のまま保持する。** `Parse` → `Render` がバイト一致することを domain のテストで守っている。
+- **詳細ファイルは tk が書かない。** 読むのと親ディレクトリの `mkdir` だけ。書き込みを足すと、エディタで開いている最中の外部変更と競合する。`Store` が `mtime` / `size` で守っているのと同じ問題を、詳細ファイルぶん抱え込むことになる。
 - **保存前に外部変更を検知したら上書きせずエラーを返す。** `ID` が行番号ベースなので、ずれると別のタスクを完了にしてしまう。自動マージはしない。
 - **レイアウト計算は実測する。** lipgloss の `Width`/`Height` は枠線込みかつ最小値であって上限ではない。「端末の幅・高さに収まる」形でテストを書く。
 - **寸法の計算は `view.go` の `newLayout` に集約してある。** `View` と `update.go` の `WindowSizeMsg` の両方が同じ値を要るので、直接計算を書き足さないこと。片方だけずれると右ペインが枠から溢れる。
@@ -106,6 +145,7 @@ TK_TASKS_FILE=/tmp/t.md go run .   # 自分の tasks.md を汚さずに試す
 - [docs/superpowers/specs/2026-08-12-tk-tabs-design.md](docs/superpowers/specs/2026-08-12-tk-tabs-design.md) — タスク / GitHub の分割（当時はタブ）
 - [docs/superpowers/specs/2026-08-13-tk-panes-design.md](docs/superpowers/specs/2026-08-13-tk-panes-design.md) — タブをやめて lazygit 風の上下ペインへ
 - [docs/superpowers/specs/2026-08-13-tk-task-detail-design.md](docs/superpowers/specs/2026-08-13-tk-task-detail-design.md) — タスクの詳細メモ
+- [docs/superpowers/specs/2026-08-15-tk-task-files-design.md](docs/superpowers/specs/2026-08-15-tk-task-files-design.md) — 詳細を1タスク1ファイルに分離。SQLite を採らなかった理由
 - [docs/known-issues.md](docs/known-issues.md) — 既知の課題、設計判断の記録、GitHub issue との対応表
 
 「なぜそうしなかったか」は known-issues に書いてある。設計を変えたくなったらまずそこを読むこと。

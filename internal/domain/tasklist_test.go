@@ -129,44 +129,54 @@ const withBody = `# 仕事
 自由記述
 `
 
-func TestParseCollectsBody(t *testing.T) {
-	items := Parse(lines(withBody)).Items()
-	if len(items) != 2 {
-		t.Fatalf("Items の件数 = %d, want 2", len(items))
-	}
-	want := "- Cookie の SameSite を Lax に\n\nRFC を読み直す"
-	if items[0].Body != want {
-		t.Errorf("Body = %q, want %q", items[0].Body, want)
-	}
-	if items[1].Body != "" {
-		t.Errorf("詳細なしのタスクに Body が付いた: %q", items[1].Body)
-	}
-}
-
-func TestParseRenderRoundTripWithBody(t *testing.T) {
+// インデント行はもう詳細として解釈しないが、原文のまま保持する。
+func TestParseRenderRoundTripWithIndentedLines(t *testing.T) {
 	got := strings.Join(Parse(lines(withBody)).Render(), "\n")
 	if got != withBody {
 		t.Errorf("round-trip が一致しない\n--- got:\n%q\n--- want:\n%q", got, withBody)
 	}
 }
 
-// インデントされたチェックボックスは詳細ではなく独立したタスクのまま。
-func TestParseNestedCheckboxIsTaskNotBody(t *testing.T) {
+// インデントされたチェックボックスは独立したタスクとして数える。
+func TestParseNestedCheckboxIsSeparateTask(t *testing.T) {
 	src := "- [ ] 親\n  - [ ] 子\n"
 	items := Parse(lines(src)).Items()
 	if len(items) != 2 {
 		t.Fatalf("Items の件数 = %d, want 2", len(items))
 	}
-	if items[0].Body != "" {
-		t.Errorf("ネストしたチェックボックスを Body に取り込んだ: %q", items[0].Body)
-	}
 }
 
-// Add は詳細の途中ではなく、最後のタスクの詳細の後ろに入る。
-func TestAddInsertsAfterLastTaskBody(t *testing.T) {
+// 詳細は別ファイルになったが、旧形式（チェックボックス行に続くインデント行を
+// 詳細として書いていたファイル）からアップグレードした直後のユーザーは
+// 全員この形のまま残っている。最後のチェックボックス行の直後に割り込むと、
+// 続くインデント行が新タスクの下にぶら下がる形に化けてしまう。
+// そのインデント行の直後まで飛ばしてから挿入する。
+func TestAddInsertsAfterTrailingIndentedLines(t *testing.T) {
 	src := "- [ ] A\n  メモ1\n  メモ2\n"
 	got := strings.Join(Parse(lines(src)).Add("B").Render(), "\n")
 	want := "- [ ] A\n  メモ1\n  メモ2\n- [ ] B\n"
+	if got != want {
+		t.Errorf("Add の挿入位置が違う\n--- got:\n%q\n--- want:\n%q", got, want)
+	}
+}
+
+// インデント行の後に空行を挟んで見出しが続く場合、その空行の連続は次の
+// セクションとの区切りなので、空行の後ろまで飛ばしてはいけない。
+func TestAddInsertsAfterIndentedBlockBeforeHeading(t *testing.T) {
+	src := "- [ ] A\n  メモ\n## メモ\n自由記述\n"
+	got := strings.Join(Parse(lines(src)).Add("B").Render(), "\n")
+	want := "- [ ] A\n  メモ\n- [ ] B\n## メモ\n自由記述\n"
+	if got != want {
+		t.Errorf("Add の挿入位置が違う\n--- got:\n%q\n--- want:\n%q", got, want)
+	}
+}
+
+// チェックボックス行の直後が空行で、そのまま見出しに続く場合。空行はまだ
+// 詳細行が見つかっていないので、空行を挟んで見出しの下まで飛ばしてはいけない。
+func TestAddDoesNotSkipBlankLinesBeforeHeading(t *testing.T) {
+	src := "- [ ] A\n\n## メモ\n自由記述\n"
+	got := strings.Join(Parse(lines(src)).Add("B").Render(), "\n")
+	want := "- [ ] A\n- [ ] B\n\n## メモ\n自由記述\n"
 	if got != want {
 		t.Errorf("Add の挿入位置が違う\n--- got:\n%q\n--- want:\n%q", got, want)
 	}

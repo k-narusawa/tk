@@ -48,6 +48,27 @@ func (f *fakePRs) Fetch(ctx context.Context, role domain.Role) ([]domain.Item, e
 	return f.byRole[role], f.err
 }
 
+// fakeDetailStore は usecase.TaskDetailStore を満たす。タイトル → 本文の
+// マップで、ファイルシステムを使わずに詳細の受け渡しを検証する。
+type fakeDetailStore struct {
+	bodies map[string]string
+	err    error
+}
+
+func (f *fakeDetailStore) Body(title string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.bodies[title], nil
+}
+
+func (f *fakeDetailStore) EditPath(title string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return "/tmp/tk-test/" + title + ".md", nil
+}
+
 type fakeDetails struct {
 	detail domain.PRDetail
 	err    error
@@ -76,7 +97,7 @@ func pr(repo string, number int, role domain.Role) domain.Item {
 
 func TestLoadReadsTasks(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	in := NewInbox(store, &fakePRs{}, &fakeDetails{})
+	in := NewInbox(store, &fakePRs{}, &fakeDetails{}, &fakeDetailStore{})
 
 	if err := in.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -89,7 +110,7 @@ func TestLoadReadsTasks(t *testing.T) {
 
 func TestLoadPropagatesError(t *testing.T) {
 	want := errors.New("permission denied")
-	in := NewInbox(&fakeStore{loadErr: want}, &fakePRs{}, &fakeDetails{})
+	in := NewInbox(&fakeStore{loadErr: want}, &fakePRs{}, &fakeDetails{}, &fakeDetailStore{})
 	if err := in.Load(); !errors.Is(err, want) {
 		t.Errorf("Load() error = %v, want %v", err, want)
 	}
@@ -102,7 +123,7 @@ func TestLoadAndRefreshDoNotFetchDetails(t *testing.T) {
 		domain.RoleReview: {pr("a/x", 1, domain.RoleReview)},
 		domain.RoleMine:   {pr("a/y", 2, domain.RoleMine)},
 	}}
-	in := NewInbox(&fakeStore{list: taskList("")}, prs, details)
+	in := NewInbox(&fakeStore{list: taskList("")}, prs, details, &fakeDetailStore{})
 
 	if err := in.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -127,7 +148,7 @@ func TestDetailIsCached(t *testing.T) {
 	prs := &fakePRs{byRole: map[domain.Role][]domain.Item{
 		domain.RoleReview: {pr("a/x", 1, domain.RoleReview)},
 	}}
-	in := NewInbox(&fakeStore{list: taskList("")}, prs, details)
+	in := NewInbox(&fakeStore{list: taskList("")}, prs, details, &fakeDetailStore{})
 	if err := in.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
@@ -148,7 +169,7 @@ func TestDetailIsCached(t *testing.T) {
 }
 
 func TestDetailUnknownID(t *testing.T) {
-	in := NewInbox(&fakeStore{list: taskList("")}, &fakePRs{}, &fakeDetails{})
+	in := NewInbox(&fakeStore{list: taskList("")}, &fakePRs{}, &fakeDetails{}, &fakeDetailStore{})
 	if _, err := in.Detail(context.Background(), domain.PRID("no/such", 1)); err == nil {
 		t.Error("存在しない ID でエラーが返らなかった")
 	}
@@ -158,7 +179,7 @@ func TestDetailUnknownID(t *testing.T) {
 // 存在しない PR ID と同じ not-found に落ちる。
 func TestDetailTaskKindIDNotFound(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	in := NewInbox(store, &fakePRs{}, &fakeDetails{})
+	in := NewInbox(store, &fakePRs{}, &fakeDetails{}, &fakeDetailStore{})
 	if err := in.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -195,7 +216,7 @@ func (f *droppingPRs) Fetch(ctx context.Context, role domain.Role) ([]domain.Ite
 // Detail は not-found に落ちる（キャッシュに残っていた古い詳細を返さない）。
 func TestDetailRemovedPRIDNotFound(t *testing.T) {
 	prs := &droppingPRs{calls: make(map[domain.Role]int)}
-	in := NewInbox(&fakeStore{list: taskList("")}, prs, &fakeDetails{})
+	in := NewInbox(&fakeStore{list: taskList("")}, prs, &fakeDetails{}, &fakeDetailStore{})
 
 	if err := in.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh() 1回目 error = %v", err)
@@ -219,7 +240,7 @@ func TestDetailRemovedPRIDNotFound(t *testing.T) {
 
 func TestToggleSavesAndUpdates(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	in := NewInbox(store, &fakePRs{}, &fakeDetails{})
+	in := NewInbox(store, &fakePRs{}, &fakeDetails{}, &fakeDetailStore{})
 	if err := in.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -245,7 +266,7 @@ func TestToggleSavesAndUpdates(t *testing.T) {
 // 「先に状態を更新して失敗したらロールバックする」別実装でも通ってしまう。
 func TestToggleKeepsStateOnSaveError(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n"), saveErr: errors.New("disk full")}
-	in := NewInbox(store, &fakePRs{}, &fakeDetails{})
+	in := NewInbox(store, &fakePRs{}, &fakeDetails{}, &fakeDetailStore{})
 	if err := in.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -263,7 +284,7 @@ func TestToggleKeepsStateOnSaveError(t *testing.T) {
 
 func TestAddSavesAndUpdates(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] 既存\n")}
-	in := NewInbox(store, &fakePRs{}, &fakeDetails{})
+	in := NewInbox(store, &fakePRs{}, &fakeDetails{}, &fakeDetailStore{})
 	if err := in.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -281,7 +302,7 @@ func TestAddSavesAndUpdates(t *testing.T) {
 
 func TestRefreshPropagatesError(t *testing.T) {
 	want := errors.New("gh: not logged in")
-	in := NewInbox(&fakeStore{list: taskList("")}, &fakePRs{err: want}, &fakeDetails{})
+	in := NewInbox(&fakeStore{list: taskList("")}, &fakePRs{err: want}, &fakeDetails{}, &fakeDetailStore{})
 	if err := in.Refresh(context.Background()); !errors.Is(err, want) {
 		t.Errorf("Refresh() error = %v, want %v", err, want)
 	}
@@ -325,7 +346,7 @@ func containsPR(items []domain.Item, repo string, number int) bool {
 // このとき、片方の失敗で良い状態の一覧を上書きしてはいけない。
 func TestRefreshKeepsPreviousPRsOnPartialFailure(t *testing.T) {
 	prs := &partialFailurePRs{calls: make(map[domain.Role]int)}
-	in := NewInbox(&fakeStore{list: taskList("")}, prs, &fakeDetails{})
+	in := NewInbox(&fakeStore{list: taskList("")}, prs, &fakeDetails{}, &fakeDetailStore{})
 
 	if err := in.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh() 1回目 error = %v", err)
@@ -356,7 +377,7 @@ func TestConcurrentAccess(t *testing.T) {
 	}}
 	details := &fakeDetails{detail: domain.PRDetail{CI: "passing"}}
 
-	in := NewInbox(store, prs, details)
+	in := NewInbox(store, prs, details, &fakeDetailStore{})
 	if err := in.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -419,7 +440,7 @@ func TestTasksAndPRsAreSeparate(t *testing.T) {
 		domain.RoleReview: {pr("a/x", 1, domain.RoleReview)},
 		domain.RoleMine:   {pr("a/y", 2, domain.RoleMine)},
 	}}
-	in := NewInbox(store, prs, nil)
+	in := NewInbox(store, prs, nil, &fakeDetailStore{})
 	if err := in.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -457,7 +478,7 @@ func TestTasksAndPRsAreSeparate(t *testing.T) {
 // Refresh 前は PRs() が空でも Tasks() は取れること。
 func TestTasksBeforeRefresh(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	in := NewInbox(store, nil, nil)
+	in := NewInbox(store, nil, nil, &fakeDetailStore{})
 	if err := in.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -467,5 +488,52 @@ func TestTasksBeforeRefresh(t *testing.T) {
 	}
 	if len(in.PRs()) != 0 {
 		t.Errorf("Refresh 前の PRs() = %d 件, want 0", len(in.PRs()))
+	}
+}
+
+func TestBodyReadsDetailOfSelectedTask(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] 認証まわりのリファクタ @today\n- [ ] 別のタスク\n")}
+	details := &fakeDetailStore{bodies: map[string]string{"認証まわりのリファクタ": "Cookie の SameSite を Lax に"}}
+	in := NewInbox(store, &fakePRs{}, &fakeDetails{}, details)
+	if err := in.Load(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := in.Body(domain.TaskID(0))
+	if err != nil {
+		t.Fatalf("Body() = %v", err)
+	}
+	if got != "Cookie の SameSite を Lax に" {
+		t.Errorf("Body() = %q, want %q", got, "Cookie の SameSite を Lax に")
+	}
+}
+
+// タグはファイル名に含めない。タグを付け替えても詳細が迷子にならないため。
+func TestDetailPathUsesTitleWithoutTag(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] 認証 @today\n")}
+	details := &fakeDetailStore{}
+	in := NewInbox(store, &fakePRs{}, &fakeDetails{}, details)
+	if err := in.Load(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := in.DetailPath(domain.TaskID(0))
+	if err != nil {
+		t.Fatalf("DetailPath() = %v", err)
+	}
+	if got != "/tmp/tk-test/認証.md" {
+		t.Errorf("DetailPath() = %q, want %q（タグが混ざっている）", got, "/tmp/tk-test/認証.md")
+	}
+}
+
+// 存在しない ID で詳細を開こうとしたら、空パスを返さずエラーにする。
+// 空パスのままエディタを起動すると、意図しない場所に保存されうる。
+func TestDetailPathUnknownIDIsError(t *testing.T) {
+	in := NewInbox(&fakeStore{list: taskList("- [ ] やること\n")}, &fakePRs{}, &fakeDetails{}, &fakeDetailStore{})
+	if err := in.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := in.DetailPath(domain.TaskID(99)); err == nil {
+		t.Error("存在しない ID なのにエラーにならなかった")
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -34,6 +35,27 @@ func (f *fakeStore) Save(t domain.TaskList) error {
 	f.saved = append(f.saved, t)
 	f.list = t
 	return nil
+}
+
+// fakeDetailStore は usecase.TaskDetailStore を満たす。タイトル → 本文の
+// マップで、ファイルシステムを使わずに詳細の受け渡しを検証する。
+type fakeDetailStore struct {
+	bodies map[string]string
+	err    error
+}
+
+func (f *fakeDetailStore) Body(title string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.bodies[title], nil
+}
+
+func (f *fakeDetailStore) EditPath(title string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return "/tmp/tk-test/" + title + ".md", nil
 }
 
 // fakePRs は role ごとに1件返す。r キーや起動時の非同期取り込みを
@@ -75,7 +97,7 @@ func prPair() *fakePRs {
 
 func newTestModel(t *testing.T, store *fakeStore) Model {
 	t.Helper()
-	inbox := usecase.NewInbox(store, nil, nil)
+	inbox := usecase.NewInbox(store, nil, nil, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -236,7 +258,7 @@ func TestInitFetchesPRsAsync(t *testing.T) {
 		domain.RoleReview: {ID: domain.PRID("a/x", 1), Kind: domain.KindPR, Repo: "a/x", Number: 1, Role: domain.RoleReview},
 		domain.RoleMine:   {ID: domain.PRID("a/y", 2), Kind: domain.KindPR, Repo: "a/y", Number: 2, Role: domain.RoleMine},
 	}}
-	inbox := usecase.NewInbox(store, prs, nil)
+	inbox := usecase.NewInbox(store, prs, nil, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -277,7 +299,7 @@ func TestInitFetchesPRsAsync(t *testing.T) {
 func TestInitPRFailureKeepsTasksIntact(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
 	wantErr := errors.New("gh: not logged in")
-	inbox := usecase.NewInbox(store, &fakePRs{err: wantErr}, nil)
+	inbox := usecase.NewInbox(store, &fakePRs{err: wantErr}, nil, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -314,7 +336,7 @@ func TestInitPRFailureKeepsTasksIntact(t *testing.T) {
 // 別々の原因のエラーを取得成功が一括で握り潰す、が今回の実バグ。
 func TestSuccessfulPRRefreshKeepsSaveError(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n"), saveErr: errors.New("disk full")}
-	inbox := usecase.NewInbox(store, &fakePRs{}, nil)
+	inbox := usecase.NewInbox(store, &fakePRs{}, nil, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -700,6 +722,43 @@ func TestCtrlDCtrlUScrollDetailPane(t *testing.T) {
 	}
 }
 
+// syncDetail は選択中アイテムを表示するたびに viewport の中身を丸ごと
+// 差し替えるが、スクロール位置（YOffset）は前のタスクのものが残ったままだった。
+// 詳細は今や任意サイズの Markdown ファイルなので、スクロールしてから次のタスク
+// へ移ると、そのタスクの見出しが画面外になったまま出ないことがある。
+func TestSyncDetailResetsScrollOnTaskChange(t *testing.T) {
+	var body strings.Builder
+	for i := 0; i < 100; i++ {
+		fmt.Fprintf(&body, "line%d\n", i)
+	}
+	store := &fakeStore{list: taskList("- [ ] 一\n- [ ] 二\n")}
+	details := &fakeDetailStore{bodies: map[string]string{"一": body.String(), "二": body.String()}}
+	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details)
+	if err := inbox.Load(); err != nil {
+		t.Fatal(err)
+	}
+	m := New(inbox, Config{})
+
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	m = got.(Model)
+
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'd', Mod: tea.ModCtrl}))
+	m = got.(Model)
+	if m.detail.YOffset() == 0 {
+		t.Fatalf("前提が崩れている: ctrl+d 後も YOffset = 0")
+	}
+
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+	m = got.(Model)
+
+	if m.detail.YOffset() != 0 {
+		t.Errorf("タスクを移動したのにスクロール位置が引き継がれている: YOffset = %d, want 0", m.detail.YOffset())
+	}
+	if !strings.Contains(m.detail.View(), "二") {
+		t.Errorf("詳細ペインの先頭（タイトル）が表示に含まれていない:\n%s", m.detail.View())
+	}
+}
+
 // gh の 401 のような長いエラー（93桁前後、JSON を含む）がフッターに出ても
 // 端末幅を超えないこと。help の固定文言よりこちらの方が実際に長くなる。
 func TestLongErrorInFooterDoesNotOverflow(t *testing.T) {
@@ -723,7 +782,7 @@ func TestLongErrorInFooterDoesNotOverflow(t *testing.T) {
 // のは prLoadedMsg なので、実際の起動と同じくそれも流す。
 func prModelWith(t *testing.T, store *fakeStore, details *fakeDetails, aiCmd string) Model {
 	t.Helper()
-	inbox := usecase.NewInbox(store, prPair(), details)
+	inbox := usecase.NewInbox(store, prPair(), details, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -749,7 +808,7 @@ func prModel(t *testing.T, aiCmd string) Model {
 
 func TestHLKeysMoveFocus(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -814,7 +873,7 @@ func TestPaneFocusWrapsWithBothKeys(t *testing.T) {
 // カーソル位置はペインごとに保たれる。往復しても元の行に戻ること。
 func TestCursorIsPerPane(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] 一\n- [ ] 二\n- [ ] 三\n")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -865,7 +924,7 @@ func TestCursorIsPerPane(t *testing.T) {
 // 落ちないこと（PR が減る、タスクが消えるのは普通に起きる）。
 func TestPerPaneCursorClampsWhenListShrinks(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] 一\n- [ ] 二\n- [ ] 三\n")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -919,7 +978,7 @@ func TestShiftAScopeIsFocusedPane(t *testing.T) {
 // 追従しないと、タスクの詳細を出したまま PR 一覧を見ることになる。
 func TestFocusMoveKeepsDetailPaneInSync(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -1234,7 +1293,7 @@ func TestShiftRReloadsTasksFromGitHubPane(t *testing.T) {
 // 件数が出ないと PR が来ているかどうか分からなくなる。
 func TestPaneTitlesShowNameAndCount(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -1458,7 +1517,7 @@ func TestNKeyStillWorksOnTaskPane(t *testing.T) {
 // 故障と区別できないので、取得中と0件を書き分ける。
 func TestGitHubPaneEmptyStates(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	inbox := usecase.NewInbox(store, &fakePRs{}, nil)
+	inbox := usecase.NewInbox(store, &fakePRs{}, nil, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -1489,7 +1548,7 @@ func TestGitHubPaneEmptyStates(t *testing.T) {
 // 一覧は「なし」で矛盾しない。
 func TestGitHubPaneEmptyAfterFetchError(t *testing.T) {
 	store := &fakeStore{list: taskList("")}
-	inbox := usecase.NewInbox(store, &fakePRs{err: errors.New("gh: not logged in")}, nil)
+	inbox := usecase.NewInbox(store, &fakePRs{err: errors.New("gh: not logged in")}, nil, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -1515,7 +1574,7 @@ func TestGitHubPaneEmptyAfterFetchError(t *testing.T) {
 // 右ペインの表示と衝突しない「PR なし」「PR を取得中」に絞る。
 func TestGitHubPaneFillsWithPRsOnLoad(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
-	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{})
+	inbox := usecase.NewInbox(store, prPair(), &fakeDetails{}, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -1560,7 +1619,7 @@ func TestTaskPaneEmptyShowsNothing(t *testing.T) {
 
 func TestEKeyOnTaskReturnsCmd(t *testing.T) {
 	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
-	m.cfg.EditorCmd, m.cfg.TasksFile = "true", "/tmp/tasks.md"
+	m.cfg.EditorCmd = "true"
 
 	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Text: "e"}))
 	if cmd == nil {
@@ -1571,7 +1630,7 @@ func TestEKeyOnTaskReturnsCmd(t *testing.T) {
 // PR には編集する行が無いので、e は何もしない。
 func TestEKeyOnPRReturnsNil(t *testing.T) {
 	m := prModel(t, "claude")
-	m.cfg.EditorCmd, m.cfg.TasksFile = "true", "/tmp/tasks.md"
+	m.cfg.EditorCmd = "true"
 
 	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Text: "e"}))
 	if cmd != nil {
@@ -1582,7 +1641,7 @@ func TestEKeyOnPRReturnsNil(t *testing.T) {
 // エディタが指定できないときも、黙って何もしないのではなくエラーを出す。
 func TestEKeyWithEmptyEditorSurfacesError(t *testing.T) {
 	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n")})
-	m.cfg.EditorCmd, m.cfg.TasksFile = "", "/tmp/tasks.md"
+	m.cfg.EditorCmd = ""
 
 	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Text: "e"}))
 	if cmd == nil {
@@ -1603,15 +1662,11 @@ func TestEditDoneReloadsTasks(t *testing.T) {
 	m := newTestModel(t, store)
 	before := store.loadCalls
 
-	store.list = taskList("- [ ] やること\n  エディタで足したメモ\n")
 	got, _ := m.Update(editDoneMsg{})
 	m = got.(Model)
 
 	if store.loadCalls == before {
 		t.Fatal("エディタを閉じても tasks.md を読み直していない")
-	}
-	if m.items[0].Body != "エディタで足したメモ" {
-		t.Errorf("Body = %q, want %q", m.items[0].Body, "エディタで足したメモ")
 	}
 }
 
@@ -1633,11 +1688,105 @@ func TestEditDoneWithErrorStillReloadsAndShowsError(t *testing.T) {
 }
 
 func TestDetailShowsTaskBody(t *testing.T) {
-	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n  詳細のメモ\n")})
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	details := &fakeDetailStore{bodies: map[string]string{"やること": "詳細のメモ"}}
+	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details)
+	if err := inbox.Load(); err != nil {
+		t.Fatal(err)
+	}
+	m := New(inbox, Config{})
+
 	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = got.(Model)
 
 	if !strings.Contains(m.View().Content, "詳細のメモ") {
 		t.Errorf("詳細ペインにメモが出ていない:\n%s", m.View().Content)
+	}
+}
+
+// 詳細ファイルが読めないときは黙って空にせず、右ペインに理由を出す。
+// 空表示だと「詳細を書いていない」と見分けが付かない。
+func TestDetailShowsReadError(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	details := &fakeDetailStore{err: errors.New("permission denied")}
+	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details)
+	if err := inbox.Load(); err != nil {
+		t.Fatal(err)
+	}
+	m := New(inbox, Config{})
+
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = got.(Model)
+
+	if !strings.Contains(m.View().Content, "permission denied") {
+		t.Errorf("読み込みエラーが右ペインに出ていない:\n%s", m.View().Content)
+	}
+}
+
+// 詳細ファイルは今や任意サイズの Markdown なので、長い1行（プレーンな段落や
+// 長い URL）が来うる。h/l はペイン切替に使うので横スクロールする手段が無く、
+// 折り返さないと幅を超えた分が二度と見えない。
+func TestLongLineInDetailBodyIsSoftWrapped(t *testing.T) {
+	line := strings.Repeat("a", 200) + "END"
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	details := &fakeDetailStore{bodies: map[string]string{"やること": line + "\n"}}
+	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details)
+	if err := inbox.Load(); err != nil {
+		t.Fatal(err)
+	}
+	m := New(inbox, Config{})
+
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: 30})
+	m = got.(Model)
+
+	if !strings.Contains(m.detail.View(), "END") {
+		t.Errorf("長い行の末尾が折り返されず表示から消えている:\n%s", m.detail.View())
+	}
+}
+
+// e が開くのは tasks.md ではなく、そのタスクの詳細ファイル。
+// argv を直接見る。cmd が非 nil なだけでは、どのファイルを開こうとして
+// いるか分からず、tasks.md に戻る退行を検出できない。
+func TestEKeyOpensDetailFileNotTasksFile(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, &fakeDetailStore{})
+	if err := inbox.Load(); err != nil {
+		t.Fatal(err)
+	}
+	m := New(inbox, Config{EditorCmd: "vi"})
+
+	c, err := m.editorCommand()
+	if err != nil {
+		t.Fatalf("editorCommand() = %v", err)
+	}
+	if c == nil {
+		t.Fatal("タスクを選んでいるのに *exec.Cmd が nil")
+	}
+	want := []string{"vi", "/tmp/tk-test/やること.md"} // fakeDetailStore.EditPath が返すパス
+	if !slices.Equal(c.Args, want) {
+		t.Errorf("Args = %v, want %v", c.Args, want)
+	}
+}
+
+// 詳細ファイルのパスが取れないときも、黙って何もしないのではなくエラーを出す。
+func TestEKeyWithDetailPathErrorSurfacesError(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	details := &fakeDetailStore{err: errors.New("mkdir: read-only file system")}
+	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details)
+	if err := inbox.Load(); err != nil {
+		t.Fatal(err)
+	}
+	m := New(inbox, Config{EditorCmd: "true"})
+
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Text: "e"}))
+	if cmd == nil {
+		t.Fatal("パスが取れなくても cmd が nil であってはならない")
+	}
+	done, ok := cmd().(editDoneMsg)
+	if !ok {
+		t.Fatalf("cmd() が返したのは %T, want editDoneMsg", cmd())
+	}
+	if done.err == nil {
+		t.Error("パスが取れないのに editDoneMsg.err が nil")
 	}
 }

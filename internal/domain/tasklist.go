@@ -13,7 +13,6 @@ type task struct {
 	done  bool
 	title string
 	tag   string
-	body  []string // line の直後に続く詳細行（原文のまま）
 }
 
 // TaskList は tasks.md の全行と、そこから解釈したタスクを対で持つ。
@@ -35,56 +34,9 @@ func Parse(lines []string) TaskList {
 			done:  m[2] == "x" || m[2] == "X",
 			title: title,
 			tag:   tag,
-			body:  bodyAt(lines, i),
 		})
 	}
 	return t
-}
-
-// bodyAt はチェックボックス行 at に続く詳細行を集める。インデントされた行と
-// 空行が続く限りが詳細で、非インデントの非空行（"## メモ" など）か次の
-// チェックボックス行で終わる。末尾の空行は含めない。
-// インデントされたチェックボックス行は詳細ではなく独立したタスクなので、
-// そこで打ち切る。
-func bodyAt(lines []string, at int) []string {
-	end := at + 1
-	for ; end < len(lines); end++ {
-		l := strings.TrimRight(lines[end], " \t\r")
-		if l == "" {
-			continue
-		}
-		if checkboxRe.MatchString(lines[end]) || !strings.ContainsAny(l[:1], " \t") {
-			break
-		}
-	}
-	for end > at+1 && strings.TrimSpace(lines[end-1]) == "" {
-		end--
-	}
-	return lines[at+1 : end]
-}
-
-// dedent は非空行に共通する最小のインデントだけを剥がす。枠の中で二重に
-// インデントされて見えるのを防ぎつつ、メモの中の入れ子は保つ。
-func dedent(lines []string) string {
-	n := -1
-	for _, l := range lines {
-		t := strings.TrimLeft(l, " \t")
-		if t == "" {
-			continue
-		}
-		if w := len(l) - len(t); n < 0 || w < n {
-			n = w
-		}
-	}
-	out := make([]string, len(lines))
-	for i, l := range lines {
-		s := strings.TrimRight(l, " \t\r")
-		if n > 0 && len(s) >= n {
-			s = s[n:]
-		}
-		out[i] = s
-	}
-	return strings.Join(out, "\n")
 }
 
 // splitTag は末尾の " @xxx" をタグとして切り出す。
@@ -105,7 +57,6 @@ func (t TaskList) Items() []Item {
 			Title: tk.title,
 			Done:  tk.done,
 			Tag:   tk.tag,
-			Body:  dedent(tk.body),
 		})
 	}
 	return items
@@ -133,13 +84,16 @@ func (t TaskList) Toggle(id ID) TaskList {
 	return t
 }
 
-// Add は最後のタスク（詳細行があればその末尾）の直後に挿入する。末尾に
-// 追記すると "## メモ" のような後続セクションの下に紛れ込んでしまい、
-// チェックボックス行の直後に入れると詳細の途中に割り込んでしまうため。
+// Add は最後のチェックボックス行の直後に挿入する。末尾に追記すると
+// "## メモ" のような後続セクションの下に紛れ込んでしまうため。
+// ただし、旧形式（チェックボックス行に続くインデント行を詳細として書いて
+// いたファイル）からアップグレードした直後のユーザーはその形のまま残って
+// いる。直後に割り込むと続くインデント行が新タスクの下にぶら下がる形に
+// 化けてしまうので、そのインデント行の直後まで飛ばす。
 func (t TaskList) Add(title string) TaskList {
 	at := -1
-	for _, tk := range t.tasks {
-		at = max(at, tk.line+len(tk.body))
+	if n := len(t.tasks); n > 0 {
+		at = addAnchor(t.lines, t.tasks[n-1].line)
 	}
 	if at < 0 {
 		// チェックボックスが無いなら最後の非空行の直後
@@ -161,4 +115,24 @@ func (t TaskList) Add(title string) TaskList {
 	lines = append(lines, newLine)
 	lines = append(lines, t.lines[at+1:]...)
 	return Parse(lines)
+}
+
+// addAnchor は checkboxLine に続くインデント行を「そのタスクの続き」とみなし
+// て飛ばした先の行番号を返す。非インデントの行（次のチェックボックスや見出し）
+// か入力の終端で止まる。空行そのものは挿入位置に含めない。次のインデント行へ
+// 続くかどうかを空行の時点では判断できず、"## メモ" の前の空行の連続に紛れ
+// 込ませないため。
+func addAnchor(lines []string, checkboxLine int) int {
+	at := checkboxLine
+	for i := checkboxLine + 1; i < len(lines); i++ {
+		line := lines[i]
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+			break
+		}
+		at = i
+	}
+	return at
 }
