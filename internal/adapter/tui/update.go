@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"os/exec"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -38,24 +39,31 @@ func (m Model) aiExec(items []domain.Item) tea.Cmd {
 	})
 }
 
+// editorCommand は選択中タスクの詳細ファイルを開く *exec.Cmd を組み立てる。
+// tea.ExecProcess で包む前に切り出してあるのは、どのパスを開こうとしているかを
+// TUI を起動せずにテストするため（adapter/editor と同じ理由）。
+func (m Model) editorCommand() (*exec.Cmd, error) {
+	it, ok := m.selected()
+	if !ok || it.Kind != domain.KindTask {
+		return nil, nil
+	}
+	path, err := m.inbox.DetailPath(it.ID)
+	if err != nil {
+		return nil, err
+	}
+	return editor.Command(m.cfg.EditorCmd, path)
+}
+
 // editExec は選択中タスクの詳細ファイルをエディタで開く tea.Cmd を作る。
 // tk は詳細を書き込まない。編集はエディタに任せ、閉じたら tasks.md を
 // 読み直す（タイトルや完了状態が変わっているかもしれないため）。
 func (m Model) editExec() tea.Cmd {
-	it, ok := m.selected()
-	if !ok || it.Kind != domain.KindTask {
-		return nil
-	}
-	fail := func(err error) tea.Cmd {
+	c, err := m.editorCommand()
+	if err != nil {
 		return func() tea.Msg { return editDoneMsg{err: err} }
 	}
-	path, err := m.inbox.DetailPath(it.ID)
-	if err != nil {
-		return fail(err)
-	}
-	c, err := editor.Command(m.cfg.EditorCmd, path)
-	if err != nil {
-		return fail(err)
+	if c == nil {
+		return nil // タスク以外を選んでいる。編集する対象が無い
 	}
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return editDoneMsg{err: err}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1686,25 +1687,30 @@ func TestDetailShowsReadError(t *testing.T) {
 }
 
 // e は tasks.md ではなく、そのタスクの詳細ファイルを開く。
+// e が開くのは tasks.md ではなく、そのタスクの詳細ファイル。
+// argv を直接見る。cmd が非 nil なだけでは、どのファイルを開こうとして
+// いるか分からず、tasks.md に戻る退行を検出できない。
 func TestEKeyOpensDetailFileNotTasksFile(t *testing.T) {
 	store := &fakeStore{list: taskList("- [ ] やること\n")}
 	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, &fakeDetailStore{})
 	if err := inbox.Load(); err != nil {
 		t.Fatal(err)
 	}
-	m := New(inbox, Config{EditorCmd: "true", TasksFile: "/tmp/tasks.md"})
+	m := New(inbox, Config{EditorCmd: "vi", TasksFile: "/tmp/tasks.md"})
 
-	path, err := inbox.DetailPath(domain.TaskID(0))
+	c, err := m.editorCommand()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("editorCommand() = %v", err)
 	}
-	if path == "/tmp/tasks.md" {
-		t.Fatal("詳細ファイルのパスが tasks.md と同じ")
+	if c == nil {
+		t.Fatal("タスクを選んでいるのに *exec.Cmd が nil")
 	}
-
-	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Text: "e"}))
-	if cmd == nil {
-		t.Fatal("e を押しても cmd が nil")
+	want := "/tmp/tk-test/やること.md" // fakeDetailStore.EditPath が返すパス
+	if !slices.Contains(c.Args, want) {
+		t.Errorf("Args = %v, want %q を含む", c.Args, want)
+	}
+	if slices.Contains(c.Args, "/tmp/tasks.md") {
+		t.Errorf("tasks.md を開こうとしている: %v", c.Args)
 	}
 }
 
