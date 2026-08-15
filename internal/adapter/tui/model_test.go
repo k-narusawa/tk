@@ -722,6 +722,43 @@ func TestCtrlDCtrlUScrollDetailPane(t *testing.T) {
 	}
 }
 
+// syncDetail は選択中アイテムを表示するたびに viewport の中身を丸ごと
+// 差し替えるが、スクロール位置（YOffset）は前のタスクのものが残ったままだった。
+// 詳細は今や任意サイズの Markdown ファイルなので、スクロールしてから次のタスク
+// へ移ると、そのタスクの見出しが画面外になったまま出ないことがある。
+func TestSyncDetailResetsScrollOnTaskChange(t *testing.T) {
+	var body strings.Builder
+	for i := 0; i < 100; i++ {
+		fmt.Fprintf(&body, "line%d\n", i)
+	}
+	store := &fakeStore{list: taskList("- [ ] 一\n- [ ] 二\n")}
+	details := &fakeDetailStore{bodies: map[string]string{"一": body.String(), "二": body.String()}}
+	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details)
+	if err := inbox.Load(); err != nil {
+		t.Fatal(err)
+	}
+	m := New(inbox, Config{})
+
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	m = got.(Model)
+
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'd', Mod: tea.ModCtrl}))
+	m = got.(Model)
+	if m.detail.YOffset() == 0 {
+		t.Fatalf("前提が崩れている: ctrl+d 後も YOffset = 0")
+	}
+
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+	m = got.(Model)
+
+	if m.detail.YOffset() != 0 {
+		t.Errorf("タスクを移動したのにスクロール位置が引き継がれている: YOffset = %d, want 0", m.detail.YOffset())
+	}
+	if !strings.Contains(m.detail.View(), "二") {
+		t.Errorf("詳細ペインの先頭（タイトル）が表示に含まれていない:\n%s", m.detail.View())
+	}
+}
+
 // gh の 401 のような長いエラー（93桁前後、JSON を含む）がフッターに出ても
 // 端末幅を超えないこと。help の固定文言よりこちらの方が実際に長くなる。
 func TestLongErrorInFooterDoesNotOverflow(t *testing.T) {

@@ -201,21 +201,26 @@ func itemLabel(it domain.Item) string {
 // 書き換えた内容が次に選んだ瞬間に反映される。
 func (m *Model) syncDetail() {
 	it, ok := m.selected()
-	if !ok {
+	switch {
+	case !ok:
 		m.detail.SetContent("")
-		return
-	}
-	if it.Kind == domain.KindTask {
+	case it.Kind == domain.KindTask:
 		body, err := m.inbox.Body(it.ID)
 		if err != nil {
 			// 空表示にすると「詳細を書いていない」と見分けが付かない。
 			body = "（詳細を読めませんでした: " + err.Error() + "）"
 		}
 		m.detail.SetContent(detailText(it, body, detailEntry{}, false))
-		return
+	default:
+		e, loaded := m.details[it.ID]
+		m.detail.SetContent(detailText(it, "", e, loaded))
 	}
-	e, loaded := m.details[it.ID]
-	m.detail.SetContent(detailText(it, "", e, loaded))
+	// SetContentLines は YOffset が新しい内容の範囲を超えたときしか戻さない
+	// （下方向にしかクランプしない）。詳細は今や任意サイズの Markdown ファイル
+	// なので、前のタスクをスクロールしたまま次のタスクに移ると、その位置が
+	// たまたま新しい内容でも有効な範囲に収まり、見出しが画面外に残ることがある。
+	// 選ぶたびに先頭へ戻す。
+	m.detail.GotoTop()
 }
 
 func detailText(it domain.Item, body string, e detailEntry, loaded bool) string {
