@@ -10,7 +10,7 @@ import (
 	"github.com/k-narusawa/tk/internal/domain"
 )
 
-const help = " h/l:ペイン j/k:移動 space:完了 n:追加 e:編集 enter:開く d:diff a/A:AI r:更新 R:再読込 q:終了"
+const help = " h/l:ペイン j/k:移動 space:完了 n:追加 e:編集 enter:開く d:diff v:レビュー a/A:AI r:更新 R:再読込 q:終了"
 
 var paneNames = [paneCount]string{"タスク", "GitHub"}
 
