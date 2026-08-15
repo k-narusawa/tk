@@ -48,7 +48,6 @@ type Item struct {
 	// KindTask のみ
 	Done bool
 	Tag  string // "@today" など
-	Body string // チェックボックス行に続くインデント行。段落は "\n\n" で繋がる
 
 	// KindPR のみ
 	Repo   string
