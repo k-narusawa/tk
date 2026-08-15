@@ -251,7 +251,7 @@ tk がやる書き込みは**詳細ディレクトリの `mkdir` だけ。** `e`
 - `editExec` が `Inbox.DetailPath(id)` の結果を `editor.Command` に渡す
 - `syncDetail` が選択中タスクの本文を `Inbox.Body(id)` で読み、`detailText` に渡す。
   読み込みエラーは右ペインに出す（PR 詳細の取得失敗と同じ扱い）
-- `Config.TasksFile` はそのまま（`R` の再読み込みなどで使う）
+- `Config.TasksFile` は削除した。参照している production コードが無く、`R` の再読み込みは `Inbox.Load` が、パスの保持は `Store` が担う
 
 ### `main.go`
 

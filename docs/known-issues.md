@@ -31,6 +31,7 @@
 - **壊れたシンボリックリンク**（対象が存在しない）を `TK_TASKS_FILE` に指定した場合、`EvalSymlinks` が失敗してリンク自身に `rename` され、通常ファイルに置き換わる
 - **`store.go` の `os.Stat` は not-exist 以外のエラーも黙って fallthrough する。** `EACCES` 等で新規ファイルが 0600 になる
 - **exec エラーはリフレッシュ成功では消えず、後続の保存/追加の成功でのみ消える。** 保存エラーを消してしまうより良いと判断した結果
+- **`tasks.md` が symlink のとき、一覧と詳細ディレクトリが分かれうる。** `Store.Save` は `EvalSymlinks` でリンク先に書くが、`NewDetailStore` は未解決のパスから詳細ディレクトリを導出する。`~/.config/tk/tasks.md → ~/Obsidian/vault/tasks.md` なら一覧は vault に、詳細は `~/.config/tk/tasks/` に残る。データは壊れないが、置き場所を探すときに驚く
 
 ### テストの穴
 

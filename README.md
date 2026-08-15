@@ -82,7 +82,9 @@ mkdir -p ~/.config/tk
 mv ~/tasks.md ~/.config/tk/tasks.md
 ```
 
-`~/tasks.md` を使い続けたい場合は `TK_TASKS_FILE=~/tasks.md` を指定する。
+`mkdir -p` は保険。保存先が無ければ `Store.Save` が初回保存時に自動で作るので必須ではない。
+
+`~/tasks.md` を使い続けたい場合は `TK_TASKS_FILE=~/tasks.md` を指定する。その場合、詳細ファイルの保存先も `~/.config/tk/tasks/` ではなく `~/tasks/` になる。
 
 以前はチェックボックス行の直後のインデント行が詳細だった。この解釈はやめたので、既存のインデント行は右ペインに出なくなる（`tasks.md` からは消えない。tk は非チェックボックス行を原文のまま保つ）。右ペインに出したければ `~/.config/tk/tasks/<タイトル>.md` に手で移す。
 
