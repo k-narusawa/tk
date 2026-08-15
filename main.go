@@ -13,6 +13,10 @@ import (
 	"github.com/k-narusawa/tk/internal/usecase"
 )
 
+// tasksPath は一覧ファイルのパス。詳細ファイルはここから導出するので、
+// 環境変数は TK_TASKS_FILE の1つだけで済む。
+// 既定を ~/.config/tk/ に置くのは、設定とデータを1か所にまとめるため。
+// dotfiles リポジトリで ~/.config を管理している場合は .gitignore が要る。
 func tasksPath() (string, error) {
 	if p := os.Getenv("TK_TASKS_FILE"); p != "" {
 		return p, nil
@@ -21,7 +25,7 @@ func tasksPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, "tasks.md"), nil
+	return filepath.Join(home, ".config", "tk", "tasks.md"), nil
 }
 
 func aiCommand() string {
