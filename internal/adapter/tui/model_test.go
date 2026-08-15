@@ -1624,15 +1624,11 @@ func TestEditDoneReloadsTasks(t *testing.T) {
 	m := newTestModel(t, store)
 	before := store.loadCalls
 
-	store.list = taskList("- [ ] やること\n  エディタで足したメモ\n")
 	got, _ := m.Update(editDoneMsg{})
 	m = got.(Model)
 
 	if store.loadCalls == before {
 		t.Fatal("エディタを閉じても tasks.md を読み直していない")
-	}
-	if m.items[0].Body != "エディタで足したメモ" {
-		t.Errorf("Body = %q, want %q", m.items[0].Body, "エディタで足したメモ")
 	}
 }
 
@@ -1654,11 +1650,83 @@ func TestEditDoneWithErrorStillReloadsAndShowsError(t *testing.T) {
 }
 
 func TestDetailShowsTaskBody(t *testing.T) {
-	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n  詳細のメモ\n")})
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	details := &fakeDetailStore{bodies: map[string]string{"やること": "詳細のメモ"}}
+	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details)
+	if err := inbox.Load(); err != nil {
+		t.Fatal(err)
+	}
+	m := New(inbox, Config{})
+
 	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = got.(Model)
 
 	if !strings.Contains(m.View().Content, "詳細のメモ") {
 		t.Errorf("詳細ペインにメモが出ていない:\n%s", m.View().Content)
+	}
+}
+
+// 詳細ファイルが読めないときは黙って空にせず、右ペインに理由を出す。
+// 空表示だと「詳細を書いていない」と見分けが付かない。
+func TestDetailShowsReadError(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	details := &fakeDetailStore{err: errors.New("permission denied")}
+	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details)
+	if err := inbox.Load(); err != nil {
+		t.Fatal(err)
+	}
+	m := New(inbox, Config{})
+
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = got.(Model)
+
+	if !strings.Contains(m.View().Content, "permission denied") {
+		t.Errorf("読み込みエラーが右ペインに出ていない:\n%s", m.View().Content)
+	}
+}
+
+// e は tasks.md ではなく、そのタスクの詳細ファイルを開く。
+func TestEKeyOpensDetailFileNotTasksFile(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, &fakeDetailStore{})
+	if err := inbox.Load(); err != nil {
+		t.Fatal(err)
+	}
+	m := New(inbox, Config{EditorCmd: "true", TasksFile: "/tmp/tasks.md"})
+
+	path, err := inbox.DetailPath(domain.TaskID(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path == "/tmp/tasks.md" {
+		t.Fatal("詳細ファイルのパスが tasks.md と同じ")
+	}
+
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Text: "e"}))
+	if cmd == nil {
+		t.Fatal("e を押しても cmd が nil")
+	}
+}
+
+// 詳細ファイルのパスが取れないときも、黙って何もしないのではなくエラーを出す。
+func TestEKeyWithDetailPathErrorSurfacesError(t *testing.T) {
+	store := &fakeStore{list: taskList("- [ ] やること\n")}
+	details := &fakeDetailStore{err: errors.New("mkdir: read-only file system")}
+	inbox := usecase.NewInbox(store, &fakePRs{}, &fakeDetails{}, details)
+	if err := inbox.Load(); err != nil {
+		t.Fatal(err)
+	}
+	m := New(inbox, Config{EditorCmd: "true"})
+
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Text: "e"}))
+	if cmd == nil {
+		t.Fatal("パスが取れなくても cmd が nil であってはならない")
+	}
+	done, ok := cmd().(editDoneMsg)
+	if !ok {
+		t.Fatalf("cmd() が返したのは %T, want editDoneMsg", cmd())
+	}
+	if done.err == nil {
+		t.Error("パスが取れないのに editDoneMsg.err が nil")
 	}
 }

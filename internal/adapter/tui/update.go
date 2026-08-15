@@ -38,16 +38,24 @@ func (m Model) aiExec(items []domain.Item) tea.Cmd {
 	})
 }
 
-// editExec は選択中タスクの行をエディタで開く tea.Cmd を作る。tk は詳細を
-// 書き込まない。編集はエディタに任せ、閉じたら tasks.md を読み直す。
+// editExec は選択中タスクの詳細ファイルをエディタで開く tea.Cmd を作る。
+// tk は詳細を書き込まない。編集はエディタに任せ、閉じたら tasks.md を
+// 読み直す（タイトルや完了状態が変わっているかもしれないため）。
 func (m Model) editExec() tea.Cmd {
 	it, ok := m.selected()
 	if !ok || it.Kind != domain.KindTask {
 		return nil
 	}
-	c, err := editor.Command(m.cfg.EditorCmd, m.cfg.TasksFile)
-	if err != nil {
+	fail := func(err error) tea.Cmd {
 		return func() tea.Msg { return editDoneMsg{err: err} }
+	}
+	path, err := m.inbox.DetailPath(it.ID)
+	if err != nil {
+		return fail(err)
+	}
+	c, err := editor.Command(m.cfg.EditorCmd, path)
+	if err != nil {
+		return fail(err)
 	}
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return editDoneMsg{err: err}
