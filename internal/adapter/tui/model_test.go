@@ -1744,7 +1744,6 @@ func TestLongLineInDetailBodyIsSoftWrapped(t *testing.T) {
 	}
 }
 
-// e は tasks.md ではなく、そのタスクの詳細ファイルを開く。
 // e が開くのは tasks.md ではなく、そのタスクの詳細ファイル。
 // argv を直接見る。cmd が非 nil なだけでは、どのファイルを開こうとして
 // いるか分からず、tasks.md に戻る退行を検出できない。

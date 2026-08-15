@@ -59,7 +59,7 @@ func TestDetailNameSanitizes(t *testing.T) {
 }
 
 // ファイル名の上限は 255 バイト。UTF-8 の途中で切ると壊れた文字が残る。
-// 先頭に 1 バイト足して切り詰め位置をルート境界からずらし、切り戻しの
+// 先頭に 1 バイト足して切り詰め位置をルーン境界からずらし、切り戻しの
 // ループを必ず通す。これが無いと、ループを消してもテストが通ってしまう。
 func TestDetailNameTruncatesAtRuneBoundary(t *testing.T) {
 	got := detailName("x" + strings.Repeat("あ", 200)) // 601 バイト
@@ -72,9 +72,9 @@ func TestDetailNameTruncatesAtRuneBoundary(t *testing.T) {
 	if !strings.HasSuffix(got, ".md") {
 		t.Errorf("拡張子が落ちた: %q", got)
 	}
-	// 252 バイトちょうどでは切れないはず。切れていたらルート境界を割っている。
+	// 252 バイトちょうどでは切れないはず。切れていたらルーン境界を割っている。
 	if len(got) == 255 {
-		t.Error("ルート境界を割って上限ぴったりで切っている")
+		t.Error("ルーン境界を割って上限ぴったりで切っている")
 	}
 }
 

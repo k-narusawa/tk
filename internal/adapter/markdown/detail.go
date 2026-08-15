@@ -59,7 +59,7 @@ func detailName(title string) string {
 	return s + ".md"
 }
 
-// truncateBytes は UTF-8 のルート境界を割らずに n バイト以内へ切り詰める。
+// truncateBytes は UTF-8 のルーン境界を割らずに n バイト以内へ切り詰める。
 func truncateBytes(s string, n int) string {
 	if len(s) <= n {
 		return s
