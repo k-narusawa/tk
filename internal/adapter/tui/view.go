@@ -13,9 +13,9 @@ import (
 // help はペインごとの操作案内。そのペインで実際に効くキーだけを出す
 // （PR を選んで space を押しても何も起きない、といった案内をしないため）。
 var help = [paneCount]string{
-	" h/l:ペイン j/k:移動 space:完了 n:追加 e:編集 R:再読込 a/A:AI q:終了",
-	" h/l:ペイン j/k:移動 enter:開く d:diff v:レビュー r:更新 a/A:AI q:終了",
-	" h/l:ペイン j/k:移動 x:実行 n:項目編集 e:指示編集 R:再読込 a/A:AI q:終了",
+	" h/l:ペイン j/k:移動 J/K:詳細 space:完了 n:追加 e:編集 R:再読込 a/A:AI q:終了",
+	" h/l:ペイン j/k:移動 J/K:詳細 enter:開く d:diff v:レビュー r:更新 a/A:AI q:終了",
+	" h/l:ペイン j/k:移動 J/K:詳細 x:実行 n:項目編集 e:指示編集 R:再読込 a/A:AI q:終了",
 }
 
 var paneNames = [paneCount]string{"タスク", "GitHub", "routine"}

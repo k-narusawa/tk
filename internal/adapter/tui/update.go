@@ -356,6 +356,16 @@ func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.adding = true
 		return m, m.input.Focus()
 
+	// J/K は詳細ペインの1行送り。lazygit と同じで、カーソルは一覧に
+	// 置いたまま右だけ動かす。ctrl+d/ctrl+u の細かい版。
+	case "J":
+		m.detail.ScrollDown(1)
+		return m, nil
+
+	case "K":
+		m.detail.ScrollUp(1)
+		return m, nil
+
 	case "ctrl+d":
 		m.detail.HalfPageDown()
 		return m, nil

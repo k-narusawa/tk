@@ -727,6 +727,35 @@ func TestCtrlDCtrlUScrollDetailPane(t *testing.T) {
 	}
 }
 
+// J/K は詳細ペインの1行送り。カーソルは一覧に置いたままでなければ、
+// lazygit のように「右を読みながら左の選択を保つ」ができない。
+func TestShiftJKScrollDetailPane(t *testing.T) {
+	m := newTestModel(t, &fakeStore{list: taskList("- [ ] やること\n- [ ] もうひとつ\n")})
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	m = got.(Model)
+
+	var b strings.Builder
+	for i := 0; i < 100; i++ {
+		fmt.Fprintf(&b, "line%d\n", i)
+	}
+	m.detail.SetContent(b.String())
+
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Mod: tea.ModShift, Text: "J"}))
+	m = got.(Model)
+	if m.detail.YOffset() != 1 {
+		t.Errorf("J 後の YOffset = %d, want 1", m.detail.YOffset())
+	}
+	if m.cursor != 0 {
+		t.Errorf("J で一覧のカーソルまで動いた: cursor = %d, want 0", m.cursor)
+	}
+
+	got, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'k', Mod: tea.ModShift, Text: "K"}))
+	m = got.(Model)
+	if m.detail.YOffset() != 0 {
+		t.Errorf("K 後の YOffset = %d, want 0", m.detail.YOffset())
+	}
+}
+
 // syncDetail は選択中アイテムを表示するたびに viewport の中身を丸ごと
 // 差し替えるが、スクロール位置（YOffset）は前のタスクのものが残ったままだった。
 // 詳細は今や任意サイズの Markdown ファイルなので、スクロールしてから次のタスク
