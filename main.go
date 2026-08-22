@@ -39,13 +39,17 @@ func aiCommand() string {
 // 「tk のときだけ別のものを使いたい」逃げ道を残すため。
 // routineCommand は routine を裏で回す非対話 CLI。TK_AI_CMD と分けるのは、
 // あちらが対話起動（画面を明け渡して人が読む）なのに対し、こちらは終了を
-// 待って標準出力を拾う必要があるため。既定を claude -p にしておくが、
-// 課金体系が変わったら環境変数だけで他の CLI に乗り換えられる。
+// 待って標準出力を拾う必要があるため。課金体系が変わったら環境変数だけで
+// 他の CLI に乗り換えられる。
+//
+// --allowedTools を既定に含めるのは、非対話では承認ダイアログを出せず、
+// 指定しないと調べ物のツールが全部拒否されて「取得できませんでした」だけが
+// 結果ファイルに追記されるため。読み取り系だけに絞る。
 func routineCommand() string {
 	if c := os.Getenv("TK_ROUTINE_CMD"); c != "" {
 		return c
 	}
-	return "claude -p"
+	return `claude -p --allowedTools "WebSearch,WebFetch,Bash(gh api:*)"`
 }
 
 func editorCommand() string {

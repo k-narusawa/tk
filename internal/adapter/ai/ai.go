@@ -75,11 +75,13 @@ func ReviewCommand(aiCmd, promptPath string, it domain.Item) (*exec.Cmd, error) 
 // （claude -p 等）がプロンプトを stdin から受け取るのが素直で、引数長の
 // 上限とクォート事故も避けられるため。
 //
+// sh -c を通すのは、ツール許可の指定に空白が入る（--allowedTools "Bash(gh api:*)"）
+// ため。空白で分割するだけでは書けない。
+//
 // tea.ExecProcess では包まない。TUI を明け渡さずに裏で走らせるので、
 // 呼び出し側（adapter/tui）が tea.Cmd の中で Output() を待つ。
 func RoutineCommand(routineCmd, prompt string) (*exec.Cmd, error) {
-	fields := strings.Fields(routineCmd)
-	if len(fields) == 0 {
+	if strings.TrimSpace(routineCmd) == "" {
 		return nil, errors.New("TK_ROUTINE_CMD が空")
 	}
 	// 指示が無いまま走らせても AI は何も調べられない。実行してから
@@ -87,7 +89,7 @@ func RoutineCommand(routineCmd, prompt string) (*exec.Cmd, error) {
 	if strings.TrimSpace(prompt) == "" {
 		return nil, errors.New("指示が空。e で指示ファイルを書いてください")
 	}
-	c := exec.Command(fields[0], fields[1:]...)
+	c := exec.Command("sh", "-c", routineCmd)
 	c.Stdin = strings.NewReader(prompt)
 	return c, nil
 }

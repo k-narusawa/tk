@@ -180,11 +180,11 @@ func TestRoutineCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Path == "" || filepath.Base(c.Path) != "claude" {
-		t.Errorf("Path = %q, want claude", c.Path)
+	if c.Path == "" || filepath.Base(c.Path) != "sh" {
+		t.Errorf("Path = %q, want sh", c.Path)
 	}
-	if len(c.Args) != 2 || c.Args[1] != "-p" {
-		t.Errorf("Args = %v, want [claude -p]", c.Args)
+	if len(c.Args) != 3 || c.Args[1] != "-c" || c.Args[2] != "claude -p" {
+		t.Errorf("Args = %v, want [sh -c claude -p]", c.Args)
 	}
 
 	// 指示は引数ではなく標準入力に流す。引数長の上限とクォート事故を避けるため。
@@ -202,6 +202,22 @@ func TestRoutineCommand(t *testing.T) {
 		if strings.Contains(a, "調べて") {
 			t.Errorf("指示が引数に混ざっている: %v", c.Args)
 		}
+	}
+}
+
+// 既定のツール許可（Bash(gh api:*)）は空白を含む。空白で分割していた頃は
+// 指定が壊れて調べ物のツールが拒否されていた。
+func TestRoutineCommandQuoted(t *testing.T) {
+	c, err := RoutineCommand(`sh -c 'printf %s "$0"' "Bash(gh api:*)"`, "本文")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := c.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != "Bash(gh api:*)" {
+		t.Errorf("out = %q, want Bash(gh api:*)", out)
 	}
 }
 
