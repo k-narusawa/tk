@@ -2178,7 +2178,9 @@ func TestRoutineDetailShowsResult(t *testing.T) {
 	got, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = got.(Model)
 
-	if !strings.Contains(m.detail.View(), "1.24 が出ています") {
+	// 結果は glamour で描画するので、語の途中にも色の指定が挟まる。素の
+	// 文字列で照合するために落とす。
+	if !strings.Contains(ansi.Strip(m.detail.View()), "1.24 が出ています") {
 		t.Errorf("右ペインに結果が出ていない: %q", m.detail.View())
 	}
 }

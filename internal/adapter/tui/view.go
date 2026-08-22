@@ -245,6 +245,8 @@ func (m *Model) syncDetail() {
 		if err != nil {
 			// 空表示にすると「詳細を書いていない」と見分けが付かない。
 			body = "（詳細を読めませんでした: " + err.Error() + "）"
+		} else {
+			body = m.renderMD(body)
 		}
 		m.detail.SetContent(detailText(it, body, detailEntry{}, false))
 	case it.Kind == domain.KindRoutine:
@@ -274,7 +276,7 @@ func (m Model) routineText(it domain.Item) string {
 		return b.String()
 	}
 	if result != "" {
-		b.WriteString("\n" + strings.TrimRight(result, "\n") + "\n")
+		b.WriteString("\n" + m.renderMD(strings.TrimRight(result, "\n")) + "\n")
 		return b.String()
 	}
 
@@ -284,8 +286,17 @@ func (m Model) routineText(it domain.Item) string {
 		b.WriteString("\n（指示が空です。e で書いてから x で実行してください）\n")
 		return b.String()
 	}
-	b.WriteString("\n## 指示\n\n" + strings.TrimRight(prompt, "\n") + "\n")
+	b.WriteString("\n" + m.renderMD("## 指示\n\n"+strings.TrimRight(prompt, "\n")) + "\n")
 	return b.String()
+}
+
+// renderMD は詳細ペインの幅に合わせて Markdown を描画する。ヘッダ行
+// （state: など）は整形済みなので通さない。通すと余白と折り返しが二重になる。
+func (m Model) renderMD(s string) string {
+	if m.md == nil {
+		return s
+	}
+	return m.md.render(s, m.detail.Width())
 }
 
 func routineStateLabel(s routineState) string {

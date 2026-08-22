@@ -66,6 +66,9 @@ type Model struct {
 	details map[domain.ID]detailEntry
 	input   textinput.Model
 	adding  bool
+	// md は詳細ペインの Markdown 描画。幅ごとのレンダラを抱えるので、
+	// Model が値でコピーされても作り直しにならないようポインタで持つ。
+	md *mdRenderer
 
 	errMsg  string
 	errIsPR bool // errMsg が PR 取得由来かどうか
@@ -103,6 +106,7 @@ func New(inbox *usecase.Inbox, cfg Config) Model {
 		cfg:      cfg,
 		detail:   detail,
 		details:  make(map[domain.ID]detailEntry),
+		md:       &mdRenderer{},
 		routines: make(map[domain.ID]routineState),
 		input:    ti,
 	}
