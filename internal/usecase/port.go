@@ -35,8 +35,8 @@ type RoutineSource interface {
 	EditPath(name string) (string, error)
 	// Result は過去の実行結果すべて。未実行なら空文字。
 	Result(name string) (string, error)
-	// AppendResult は実行結果を日時見出し付きで追記する。
-	AppendResult(name, body string) error
+	// PrependResult は実行結果を日時見出し付きで先頭に積む。
+	PrependResult(name, body string) error
 }
 
 // PRSource は role ごとに1本のクエリを投げる。2本を並行に走らせて

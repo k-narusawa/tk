@@ -61,12 +61,12 @@ func TestRoutineStoreEditPath(t *testing.T) {
 	}
 }
 
-func TestRoutineStoreAppendResult(t *testing.T) {
+func TestRoutineStorePrependResult(t *testing.T) {
 	s, dir := newRoutineStore(t, "")
-	if err := s.AppendResult("golang", "1回目\n"); err != nil {
+	if err := s.PrependResult("golang", "1回目\n"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AppendResult("golang", "2回目\n"); err != nil {
+	if err := s.PrependResult("golang", "2回目\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -74,12 +74,13 @@ func TestRoutineStoreAppendResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 上書きすると「前回から何が変わったか」が消えるので追記であること。
+	// 上書きすると「前回から何が変わったか」が消えるので、過去の分は残ること。
 	if !strings.Contains(got, "1回目") || !strings.Contains(got, "2回目") {
-		t.Errorf("追記されていない:\n%s", got)
+		t.Errorf("過去の結果が消えている:\n%s", got)
 	}
-	if strings.Index(got, "1回目") > strings.Index(got, "2回目") {
-		t.Errorf("古い結果が後ろに来ていない:\n%s", got)
+	// 開いた時点で最新が見えるように、新しい結果が先頭に来ること。
+	if strings.Index(got, "2回目") > strings.Index(got, "1回目") {
+		t.Errorf("新しい結果が先頭に来ていない:\n%s", got)
 	}
 	// いつの結果か分からないと、監視の記録として使えない。
 	if strings.Count(got, "## ") != 2 {
@@ -105,7 +106,7 @@ func TestRoutineStoreResultMissing(t *testing.T) {
 // ばらけると片方だけ迷子になる。
 func TestRoutineStoreNameWithSlash(t *testing.T) {
 	s, dir := newRoutineStore(t, "")
-	if err := s.AppendResult("golang/go のリリース", "本文"); err != nil {
+	if err := s.PrependResult("golang/go のリリース", "本文"); err != nil {
 		t.Fatal(err)
 	}
 	edit, err := s.EditPath("golang/go のリリース")

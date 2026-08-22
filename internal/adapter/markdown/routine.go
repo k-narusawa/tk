@@ -70,20 +70,37 @@ func (r *RoutineStore) Result(name string) (string, error) {
 	return string(data), nil
 }
 
-// AppendResult は実行結果を日時見出し付きで追記する。上書きにすると
+// PrependResult は実行結果を日時見出し付きで先頭に積む。上書きにすると
 // 「前回から何が変わったか」が消えてしまい、監視の記録にならない。
 // 溜まりすぎたら手で消す（tk は消さない）。
-func (r *RoutineStore) AppendResult(name, body string) error {
+//
+// 末尾ではなく先頭に置くのは、右ペインを開いた時点で最新が見えるようにする
+// ため。追記で済まないので、書き換え中に落ちても過去の結果が消えないよう
+// 一時ファイルに書いてから rename する。
+func (r *RoutineStore) PrependResult(name, body string) error {
 	if err := os.MkdirAll(r.Dir(), 0o700); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filepath.Join(r.Dir(), resultName(name)), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	path := filepath.Join(r.Dir(), resultName(name))
+	old, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+
+	f, err := os.CreateTemp(r.Dir(), ".tk-*")
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(f, "## %s\n\n%s\n\n", time.Now().Format("2006-01-02 15:04"), strings.TrimRight(body, "\n")); err != nil {
+	tmp := f.Name()
+	defer os.Remove(tmp) // Rename 成功後は存在しないので無害
+
+	entry := fmt.Sprintf("## %s\n\n%s\n\n", time.Now().Format("2006-01-02 15:04"), strings.TrimRight(body, "\n"))
+	if _, err := f.WriteString(entry + string(old)); err != nil {
 		f.Close()
 		return err
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }

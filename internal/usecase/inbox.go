@@ -95,7 +95,7 @@ func (i *Inbox) SaveRoutineResult(id domain.ID, body string) error {
 	if !ok {
 		return fmt.Errorf("routine が見つからない: %s", id)
 	}
-	return i.routines.AppendResult(name, body)
+	return i.routines.PrependResult(name, body)
 }
 
 // RoutineListPath は n が開く routines.md のパス。

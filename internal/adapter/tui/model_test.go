@@ -1929,7 +1929,7 @@ func (f *fakeRoutines) Body(name string) (string, error)     { return f.prompts[
 func (f *fakeRoutines) EditPath(name string) (string, error) { return "/routines/" + name + ".md", nil }
 func (f *fakeRoutines) Result(name string) (string, error)   { return f.results[name], nil }
 
-func (f *fakeRoutines) AppendResult(name, body string) error {
+func (f *fakeRoutines) PrependResult(name, body string) error {
 	if f.appendErr != nil {
 		return f.appendErr
 	}
